@@ -119,5 +119,10 @@ class RecordBase(tuple):
         setter.__name__ = "set_" + slot
         return setter
 
+    # If you override __eq__, don't let __ne__ be dumb.
+    def __ne__(this, that):
+        return not this == that
+    
+
 if __name__ == "__main__":
     pass
