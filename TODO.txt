@@ -1,0 +1,10 @@
+recover my big notes.txt
+
+local fs->metadata working
+local fs->fs 1-way sync
+local fs<->fs 2-way sync (merging)
+
+xmpp<->xmpp messages
+xmpp<->xmpp metadata syncing for one user
+p2p fs->fs 1-way sync for one user
+p2p fs<-fs 2-way sync# Copyright 2006 Uberan - All Rights Reserved
