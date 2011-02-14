@@ -4,7 +4,7 @@ import os
 import shutil
 import platform
 
-from .util import Record
+from util import Record
 
 STAT_SIZE_INDEX  = 6
 STAT_MTIME_INDEX = 8
@@ -53,7 +53,7 @@ class MacPathEncoder:
     def decode_path(self, path):
         return path
 
-class WindowsPathEncoder("encoding"):
+class WindowsPathEncoder(Record("encoding")):
     def encode_path(self, path):
         win_path = "\\\\?\\" + os.path.abspath(path.replace(PATH_SEP, os.sep))
         if self.encoding:
@@ -113,27 +113,40 @@ class FileSystem(Record("path_encoder", "trash")):
             return False
         return True
 
-    # yields (child_path, size, mtime) relative to given path
+
+    # yields (child_path, size, mtime) relative to given path On my
+    # 2008 Macbook, reads about 10,000 files/sec when doing small
+    # groups (5,000 files), and 4,000 files/sec when doing large
+    # (250,000).  These means it can take anywhere from .1 sec to 1
+    # minute.
     def list(fs, path):
         encoded_root = fs.encode_path(path)
+        join_paths = os.path.join
+        stat = os.stat
+
         # os.path.join puts a "/" on the end if necesssary
-        root_len = len(os.path.join(encoded_parent, ""))
+        root_len = len(os.path.join(encoded_root, ""))
 
-        for parent, dirs, files in os.walk(encoded_path):
+        for parent, dirs, files in os.walk(encoded_root, topdown = True):
             for file in files:
-                encoded_path = os.path.join(parent, file)
-                stats = os.stat(encoded_path)
-                size  = stats[STAT_SIZE_INDEX]
-                mtime = stats[STAT_MTIME_INDEX]
-                relative_path = encoded_path[root_len:]
-
+                encoded_path = join_paths(parent, file)
                 try:
-                    yield self.decode_path(relative_path), size, mtime
-                except UnicodeDecodeError:
-                    # TODO
-                    # log.warning(
-                    print(
-                        "Could not decode file path {} {}".format(parent, file))
+                    stats = stat(encoded_path)
+                    size  = stats[STAT_SIZE_INDEX]
+                    mtime = stats[STAT_MTIME_INDEX]
+                except OSError:
+                    pass  # Probably a symlink
+                else:
+                    #relative_path = encoded_path[root_len:]
+
+                    try:
+                        #yield fs.decode_path(relative_path), size, mtime
+                        yield encoded_path, size, mtime
+                    except UnicodeDecodeError:
+                        # TODO
+                        # log.warning(
+                        print("Could not decode file path {} {}".format(
+                            parent, file))
 
 
     # returns (size, mtime)
