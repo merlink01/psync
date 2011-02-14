@@ -1,0 +1,52 @@
+recover my big notes.txt?
+
+overall:
+  local fs->metadata working
+  local fs->fs 1-way sync
+  local fs<->fs 2-way sync (merging)
+
+  xmpp<->xmpp messages
+  xmpp<->xmpp metadata syncing for one user
+  p2p fs->fs 1-way sync for one user
+  p2p fs<-fs 2-way sync# Copyright 2006 Uberan - All Rights Reserved
+
+xmpp:
+  send a custom message
+  receive custom messages
+  keep track of who is available
+  spawn a gevent "thread" to talk to each one until unavailable
+  p2p data (w/ SSL!)
+
+concurency:
+  try gevent first
+  then try concurrence
+
+python
+  relative imports
+  new string formatting
+  catch Exception as err
+  io module
+  binary literals
+  class decorators
+  run zips directly
+  next(itr, default)
+  new set methods
+  collections.namedtuple
+  collections.OrderedDict
+  itertools product, combinations, etc
+  logging.RotatingFileHandler
+  os.walk w/ followLinks
+  os.path.relpath
+  os.path.expandvars: ~peter and %VAR%
+  PriorityQueue
+  json module
+  plistlib module
+  ssl
+  dict comprehensions
+  memoryview
+  argparse module
+  dictionary views
+  collections.Counter
+  Fraction
+  unittest improvements assertAlmostEquals, assertItemsEqual, etc
+  

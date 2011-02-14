@@ -1,0 +1,8 @@
+depenecies
+  gevent
+    libevent
+    greenlet
+  python 2.6
+
+  
+    
