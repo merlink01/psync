@@ -4,7 +4,7 @@ import os
 import shutil
 import platform
 
-from Record import Record
+from .util import Record
 
 STAT_SIZE_INDEX  = 6
 STAT_MTIME_INDEX = 8
@@ -23,35 +23,47 @@ def parent_path(path):
         parent, child = "", path
     return parent
 
-def PathEncoder:
+def PathEncoder():
     is_mac = platform.os.name == "posix" and platform.system() == "Darwin"
     is_windows = platform.os.name in ["nt", "dos"]
+    encoding = None if os.path.supports_unicode_filenames else "UTF-8"
 
     if is_mac:
         return MacPathEncoder()
     elif is_windows:
-        return WindowsPathEncoder()
+        return WindowsPathEncoder(encoding)
     else:
-        return UnixPathEncoder()
+        return UnixPathEncoder(encoding)
 
-class UnixPathEncoder:
+class UnixPathEncoder(Record("encoding")):
     def encode_path(self, path):
-        if os.path.supports_unicode_filenames:
-            return path
+        if self.encoding:
+            return path.encode(encodeding)
         else:
-            return path.encode("UTF-8")
+            return path
+
+    def decode_path(self, path):
+        # TODO: decode to unicode?
+        return path
 
 class MacPathEncoder:
     def encode_path(self, path):
         return path
 
-class WindowsPathEncoder:
+    def decode_path(self, path):
+        return path
+
+class WindowsPathEncoder("encoding"):
     def encode_path(self, path):
         win_path = "\\\\?\\" + os.path.abspath(path.replace(PATH_SEP, os.sep))
-        if os.path.supports_unicode_filenames:
-            return win_path
+        if self.encoding:
+            return win_path.encode(encodeding)
         else:
-            return win_path.encode("UTF-8")
+            return win_path
+
+    def decode_path(self, win_path):
+        # TODO: decode to unicode?
+        return win_path.replace(os.sep, PATH_SEP)
 
 class FileSystemTrash(Record("trash_path")):
     def move_to_trash(self, fs, full_path, rel_trashed_path):
@@ -82,10 +94,10 @@ class FileSystem(Record("path_encoder", "trash")):
         return cls.new(path_encoder, trash)
 
     def encode_path(fs, path):
-        if fs.path_encoder is None:
-            return path
-        else:
-            return fs.path_encoder.encode_path(path)
+        return fs.path_encoder.encode_path(path)
+
+    def decode_path(fs, path):
+        return fs.path_encoder.decode_path(path)
 
     def exists(fs, path):
         encoded_path = fs.encode_path(path)
@@ -116,11 +128,6 @@ class FileSystem(Record("path_encoder", "trash")):
                 relative_path = encoded_path[root_len:]
 
                 try:
-                    # ***
-                    # decode_path
-                    #  return path.replace(os.sep, "/")
-                    #  return path.replace("/", os.sep)
-                    #  return cls(os.path.join(*paths))
                     yield self.decode_path(relative_path), size, mtime
                 except UnicodeDecodeError:
                     # TODO
@@ -149,8 +156,8 @@ class FileSystem(Record("path_encoder", "trash")):
     def write(fs, path, contents, start = None, mtime = None):
         encoded_path = fs.encode_path(path)
 
-        fs.create_dir(parent_path(path)
-        if start is not None and fs.exists(encoded_path):
+        fs.create_dir(parent_path(path))
+        if (start is not None) and fs.exists(encoded_path):
             mode = fs.EXISTING_WRITE_MODE
         else:
             mode = fs.NEW_WRITE_MODE
