@@ -104,7 +104,7 @@ class RecordBase(tuple):
     @classmethod
     def make_getter(cls, slot, index):
         def getter(self):
-            return selfgettuple.__getitem__(self, index)
+            return tuple.__getitem__(self, index)
 
         getter.__name__ = "get_" + slot
         return getter
