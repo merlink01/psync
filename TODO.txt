@@ -1,4 +1,5 @@
-recover my big notes.txt?
+file system:
+  don't traverse ~/.Trash
 
 overall:
   local fs->metadata working

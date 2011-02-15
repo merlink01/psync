@@ -43,15 +43,14 @@ class UnixPathEncoder(Record("encoding")):
             return path
 
     def decode_path(self, path):
-        # TODO: decode to unicode?
-        return path
+        return path.decode("UTF-8")
 
 class MacPathEncoder:
     def encode_path(self, path):
         return path
 
     def decode_path(self, path):
-        return path
+        return path.decode("UTF-8")
 
 class WindowsPathEncoder(Record("encoding")):
     def encode_path(self, path):
@@ -63,7 +62,7 @@ class WindowsPathEncoder(Record("encoding")):
 
     def decode_path(self, win_path):
         # TODO: decode to unicode?
-        return win_path.replace(os.sep, PATH_SEP)
+        return win_path.replace(os.sep, PATH_SEP).decode("UTF-8")
 
 class FileSystemTrash(Record("trash_path")):
     def move_to_trash(self, fs, full_path, rel_trashed_path):
@@ -151,10 +150,11 @@ class FileSystem(Record("path_encoder", "trash")):
                 path  = fs.decode_path(encoded_path[root_len:])
                 yield path, size, mtime
             except UnicodeDecodeError:
+                raise
                 # TODO:
                 # log.warning(
-                print("Could not decode file path {} {}".format(
-                    parent, file))
+                #print("Could not decode file path {}".format(
+                #    encoded_path))
             except OSError:
                 pass  # Probably a link
 

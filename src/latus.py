@@ -1,52 +1,136 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
-import argparse
-import threading
-import logging
+import sqlite3
+import sys
+import time
 
-import sleekxmpp
+from fs import FileSystem
 
-logging.basicConfig(level = logging.INFO,
-                    format = "%(levelname)-8s %(message)s")
+class Clock:
+  def now_unix(self):
+    return time.time()
 
-parser = argparse.ArgumentParser()
-parser.add_argument("password")
-args = parser.parse_args()
+DELETED_SIZE = 0
+DELETED_MTIME = 0
+
+# returns whether mtimes are within 1 sec of each other, because
+# Windows shaves off a bit of mtime info.
+def mtimes_eq(mtime1, mtime2):
+  return abs(mtime1 - mtime2) < 2
+
+# returns bool: created db or not
+def create_file_history_db(db_conn):
+  db_cursor = db_conn.cursor()
+  try:
+    db_cursor.execute(
+      """create table files (path varchar,
+                             utime integer,
+                             size integer,
+                             mtime integer)""")
+    db_conn.commit()
+    return True
+  except sqlite3.OperationalError:
+    # Already exists?
+    return False
+
+# returns {path : [(utime, size, mtime)], with entires UNSORTED
+#
+# Reads 100,000/sec on my 2008 Macbook.  If you sort by utime, it goes
+# down to 40,000/sec, so that doesn't seem like a good idea.
+def read_file_history_from_db(db_conn):
+  history_by_path = {}
+
+  db_cursor = db_conn.cursor()
+  for (path, utime, size, mtime) in db_cursor.execute(
+    """select path, utime, size, mtime from files"""):
+    history = history_by_path.get(path)
+    latest = (utime, size, mtime)
+    if history is None:
+      history_by_path[path] = [latest]
+    else:
+      history.append(latest)
+
+  return history_by_path
+
+# takes [(path, utime, size, mtime)]
+def insert_file_history_entries_into_db(db_conn, new_history_entries):
+  db_cursor = db_conn.cursor()
+  
+  for entry in new_history_entries:
+    db_cursor.execute(
+      """insert into files (path, utime, size, mtime)
+         values (?, ?, ?, ?)""", entry)
+  db_conn.commit()
+
+# yields (change, path, size, mtime, history)
+def scan_diff(fs, root, history_by_path, detect_missing = True):
+  if detect_missing:
+    missing_paths = set(history_by_path.iterkeys())
+  else:
+    missing_paths = []
+
+  for path, size, mtime in fs.list_stats(root):
+    history = history_by_path.get(path)
+    if history is None:
+      yield ("created", path, size, mtime, history)
+    else:
+      (latest_utime, latest_size, latest_mtime) = max(history)
+      if size != latest_size or not mtimes_eq(mtime, latest_mtime):
+        yield ("changed", path, size, mtime, history)
+      else:
+        yield ("unchanged", path, size, mtime, history)
+
+    if detect_missing:
+      missing_paths.discard(path)
+
+  for path in missing_paths:
+    yield ("deleted", path, DELETED_SIZE, DELETED_MTIME, history)
+
+if __name__ == "__main__":
+  root = sys.argv[1]
+  db_path = sys.argv[2]
+
+  clock = Clock()
+  fs = FileSystem()
+
+  with sqlite3.connect(db_path) as db_conn:
+    create_file_history_db(db_conn)
+
+    history_by_path = read_file_history_from_db(db_conn)
+    print ("read history", len(history_by_path))
+
+    new_utime = int(clock.now_unix())
+    new_history_entries = []  # (path, utime, size, mtime)
+    for (change, path, size, mtime, history) in \
+        scan_diff(fs, root, history_by_path):
+      # print (change, path, size, mtime, history)
+      if change != "unchanged":
+        # TODO: if history[-1].utime > new_utime, make sure to
+        # increase utime.  Otherwise reseting the clock will mess
+        # things up.
+        # *** wait and then rescan for the changed ones
+        # *** hash the file
+        new_history_entries.append((path, new_utime, size, mtime))
+    print ("scanned fs", len(new_history_entries))
+
+    insert_file_history_entries_into_db(db_conn, new_history_entries)
+    print ("inserted", len(new_history_entries))
+
+    history_by_path2 = read_file_history_from_db(db_conn)
+    print ("read history2", len(history_by_path2))
 
 
-jid = "pthatcher@gmail.com"
-# *** hack
-password = "".join(chr(ord(c)+1) for c in args.password)
-client = sleekxmpp.ClientXMPP(jid, password)
-client.registerPlugin("xep_0030")  # Service Discovery
-client.registerPlugin("xep_0004")  # Data Forms
-client.registerPlugin("xep_0060")  # PubSub
-client.registerPlugin("xep_0199")  # XMPP Ping
-
-def on_start(event):
-  client.getRoster()
-  print ("client", client)
-  #print ("roster", client.roster)
-  for name, details in client.roster.viewitems():
-    print "{0:30}: {1[name]}, {1[presence]}".format(name, details)
-  client.sendPresence()
-
-def on_message(msg):
-  # check type
-  # can do msg.reply().send() ?
-  print repr(msg)
-
-client.add_event_handler("session_start", on_start)
-client.add_event_handler("message", on_message)
-
-if client.connect(("talk.google.com", 5222)):
-  client.process(threaded = False)
-else:
-  print "Couldn't connect"
-
-                           
-# Need to login, get peer info, and get peer info of others
-#  get all full JIDs of buddies?
+#import gevent
+## Doesn't seem to work welll with sleekxmpp :(
+# from gevent import monkey
+# monkey.patch_all()
+# 
+# Maybe try this:
+# class GeventXmpp(sleekxmpp.ClientXMPP):
+#   def process(self):
+#     gevent.spawn(self._event_runner)
+#     gevent.spawn(self._send_thread)
+#     gevent.spawn(self._process)
 
 # directory = HttpJsonLatusDirectory(
 #   config.directoryName, config.directoryURL, 
@@ -71,3 +155,16 @@ else:
 #  crypto keys?
 # TODO: debug consoloe: code.interact(
 #  "ShareEver Debugging Console", local = {"peer" : peer}
+
+# gevent:
+# from gevent.server import StreamServer
+# server = StreamServer(('0.0.0.0', 6000), lambda (socket, address): ...)
+# server.server_forever()
+# ...
+# socket.makefile().write("foo")
+# socket.makefile().read()
+#
+# from gevent.socket import wait_write
+# 
+
+
