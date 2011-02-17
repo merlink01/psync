@@ -121,7 +121,7 @@ class FileSystem(Record("path_encoder", "trash")):
     # minute.  Cacheing seems to improve performance by about 30%.
     # While running, the CPU is pegged :(.  Oh well, 60,000 files in 8
     # sec isn't too bad.
-    def list_stats(fs, path):
+    def list_stats(fs, path, names_to_ignore = {}):
         encoded_root = fs.encode_path(path)
 
         listdir = os.listdir
@@ -133,13 +133,14 @@ class FileSystem(Record("path_encoder", "trash")):
         def walk(encoded_parent):
             child_names = listdir(encoded_parent)
             for child_name in child_names:
-                encoded_path = join(encoded_parent, child_name)
-                if isdir(encoded_path):
-                    if not islink(encoded_path):
-                        for child in walk(encoded_path):
-                            yield child
-                else:
-                    yield encoded_path
+                if child_name not in names_to_ignore:
+                    encoded_path = join(encoded_parent, child_name)
+                    if isdir(encoded_path):
+                        if not islink(encoded_path):
+                            for child in walk(encoded_path):
+                                yield child
+                    else:
+                        yield encoded_path
 
         root_len = len(os.path.join(encoded_root, ""))
         for encoded_path in walk(encoded_root):

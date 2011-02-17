@@ -6,6 +6,75 @@ import time
 
 from fs import FileSystem
 
+#*** hash files when we find a change
+#*** add peerid to files.db
+
+#*** add more filtring
+#  after scanning and diffing, but before inseting into history
+#  memoize
+#  can read attributes for Win32, too
+#*** add gropuid
+#*** after fetching and merging, just let metadata scanner take care
+#    of updating history.  Only "inject" things when we resolve a conflict
+#    by using the local to win.
+
+def main(fs_path, db_path):
+  clock = Clock()
+  fs = FileSystem()
+
+  with sqlite3.connect(db_path) as db_conn:
+    create_file_history_db(db_conn)
+
+    history_by_path = read_file_history_from_db(db_conn)
+    print ("read history", len(history_by_path))
+
+    new_utime = int(clock.now_unix())
+    new_history_entries = []  # (path, utime, size, mtime)
+    #names_to_ignore = {"Library", ".Trash", ".m2", ".hg", ".git"}
+    names_to_ignore = {"Library", ".Trash", ".m2"}
+    for (change, path, size, mtime, history) in \
+        scan_and_diff(fs, fs_path, names_to_ignore, history_by_path):
+      # print (change, path, size, mtime, history)
+      if change != "unchanged":
+        # TODO: if history[-1].utime > new_utime, make sure to
+        # increase utime.  Otherwise reseting the clock will mess
+        # things up.
+        # *** wait and then rescan for the changed ones
+        # *** hash the file
+        new_history_entries.append((path, new_utime, size, mtime))
+    print ("scanned fs", len(new_history_entries))
+
+    insert_file_history_entries_into_db(db_conn, new_history_entries)
+    print ("inserted", len(new_history_entries))
+
+    history_by_path2 = read_file_history_from_db(db_conn)
+    print ("read history2", len(history_by_path2))
+
+# yields (change, path, size, mtime, history)
+def scan_and_diff(fs, root, names_to_ignore, history_by_path):
+  missing_paths = set(history_by_path.iterkeys())
+  for path, size, mtime in fs.list_stats(root, names_to_ignore):
+    #***
+    #print path, size, mtime
+
+    missing_paths.discard(path)
+
+    history = history_by_path.get(path)
+    if history is None:
+      yield ("created", path, size, mtime, history)
+    else:
+      (latest_utime, latest_size, latest_mtime) = max(history)
+      if size != latest_size or not mtimes_eq(mtime, latest_mtime):
+        yield ("changed", path, size, mtime, history)
+      else:
+        yield ("unchanged", path, size, mtime, history)
+
+  for path in missing_paths:
+    yield ("deleted", path, DELETED_SIZE, DELETED_MTIME, history)
+
+
+
+
 class Clock:
   def now_unix(self):
     return time.time()
@@ -18,14 +87,6 @@ DELETED_MTIME = 0
 def mtimes_eq(mtime1, mtime2):
   return abs(mtime1 - mtime2) < 2
 
-#*** add peerid, groupid
-#*** give a *set* of directories to ignore
-#  it's fast, and should make scanning faster
-#*** add filtering by full path name, but *memoize*
-#*** do filtering after scanning and diffing, but before inseting into history
-#*** after fetching and merging, just let metadata scanner take care of updating history.  Only "inject" things when we resolve a conflict by using the local to win.
-#  only have to check filter for ones changed
-#  can read attributes for Win32, too
 # returns bool: created db or not
 def create_file_history_db(db_conn):
   db_cursor = db_conn.cursor()
@@ -70,62 +131,11 @@ def insert_file_history_entries_into_db(db_conn, new_history_entries):
          values (?, ?, ?, ?)""", entry)
   db_conn.commit()
 
-# yields (change, path, size, mtime, history)
-def scan_diff(fs, root, history_by_path, detect_missing = True):
-  if detect_missing:
-    missing_paths = set(history_by_path.iterkeys())
-  else:
-    missing_paths = []
-
-  for path, size, mtime in fs.list_stats(root):
-    history = history_by_path.get(path)
-    if history is None:
-      yield ("created", path, size, mtime, history)
-    else:
-      (latest_utime, latest_size, latest_mtime) = max(history)
-      if size != latest_size or not mtimes_eq(mtime, latest_mtime):
-        yield ("changed", path, size, mtime, history)
-      else:
-        yield ("unchanged", path, size, mtime, history)
-
-    if detect_missing:
-      missing_paths.discard(path)
-
-  for path in missing_paths:
-    yield ("deleted", path, DELETED_SIZE, DELETED_MTIME, history)
-
 if __name__ == "__main__":
   root = sys.argv[1]
   db_path = sys.argv[2]
 
-  clock = Clock()
-  fs = FileSystem()
-
-  with sqlite3.connect(db_path) as db_conn:
-    create_file_history_db(db_conn)
-
-    history_by_path = read_file_history_from_db(db_conn)
-    print ("read history", len(history_by_path))
-
-    new_utime = int(clock.now_unix())
-    new_history_entries = []  # (path, utime, size, mtime)
-    for (change, path, size, mtime, history) in \
-        scan_diff(fs, root, history_by_path):
-      # print (change, path, size, mtime, history)
-      if change != "unchanged":
-        # TODO: if history[-1].utime > new_utime, make sure to
-        # increase utime.  Otherwise reseting the clock will mess
-        # things up.
-        # *** wait and then rescan for the changed ones
-        # *** hash the file
-        new_history_entries.append((path, new_utime, size, mtime))
-    print ("scanned fs", len(new_history_entries))
-
-    insert_file_history_entries_into_db(db_conn, new_history_entries)
-    print ("inserted", len(new_history_entries))
-
-    history_by_path2 = read_file_history_from_db(db_conn)
-    print ("read history2", len(history_by_path2))
+  main(root, db_path)
 
 # class FileScanner(Actor):
 #     def __init__(self, fs):
@@ -144,7 +154,6 @@ if __name__ == "__main__":
 #                    "move_tree", "copy_tree", "delete_tree"]
 #     sync_names = ["exists", "isdir", "isempty", "stat",
 #                   "touch", "move_to_trash"]
-
     
 ## possible XMPP:
 # <iq type="get">
@@ -155,14 +164,26 @@ if __name__ == "__main__":
 #     <file path=... mtime=... size=... utime=...>
 #   <chunk hash=... loc=... size=...>
 #   
+
 ## For permissions, we need:
 # (peerid, groupid, prefix?, can_read, can_write, is_owner)
 # what is a groupid?
 # do we use prefix?
 # where is this stored?
 
+## gevent server:
+# from gevent.server import StreamServer
+# server = StreamServer(('0.0.0.0', 6000), lambda (socket, address): ...)
+# server.server_forever()
+# ...
+# socket.makefile().write("foo")
+# socket.makefile().read()
+#
+# from gevent.socket import wait_write
+# 
+
+## Trying to get gevent and sleekxmpp to work together
 #import gevent
-## Doesn't seem to work welll with sleekxmpp :(
 # from gevent import monkey
 # monkey.patch_all()
 # 
@@ -173,10 +194,7 @@ if __name__ == "__main__":
 #     gevent.spawn(self._send_thread)
 #     gevent.spawn(self._process)
 
-# directory = HttpJsonLatusDirectory(
-#   config.directoryName, config.directoryURL, 
-#   crypto.deserialize_public_key(config.directoryPublicKey),
-#   LatusFileCache(services.fs, config.latusCacheDirectory))
+## From old ShareEver code
 # private_ip, private_port = (Utils.get_local_ip(), config.connectionPort)
 # peer = Peer(directory)
 # network = Network(map_port_description = "ShareEver")
@@ -196,16 +214,4 @@ if __name__ == "__main__":
 #  crypto keys?
 # TODO: debug consoloe: code.interact(
 #  "ShareEver Debugging Console", local = {"peer" : peer}
-
-# gevent:
-# from gevent.server import StreamServer
-# server = StreamServer(('0.0.0.0', 6000), lambda (socket, address): ...)
-# server.server_forever()
-# ...
-# socket.makefile().write("foo")
-# socket.makefile().read()
-#
-# from gevent.socket import wait_write
-# 
-
 
