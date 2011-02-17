@@ -23,6 +23,7 @@ def mtimes_eq(mtime1, mtime2):
 #  it's fast, and should make scanning faster
 #*** add filtering by full path name, but *memoize*
 #*** do filtering after scanning and diffing, but before inseting into history
+#*** after fetching and merging, just let metadata scanner take care of updating history.  Only "inject" things when we resolve a conflict by using the local to win.
 #  only have to check filter for ones changed
 #  can read attributes for Win32, too
 # returns bool: created db or not
@@ -126,6 +127,25 @@ if __name__ == "__main__":
     history_by_path2 = read_file_history_from_db(db_conn)
     print ("read history2", len(history_by_path2))
 
+# class FileScanner(Actor):
+#     def __init__(self, fs):
+#         self.fs = fs
+
+#     @async
+#     def scan(self, path):
+#         for (child_path, size, mtime) in self.fs.list_stats(path):
+#             if self.stopped:
+#                 raise ActorStopped()
+#         # ...
+#         # Now, how do we setup periodic things?
+
+# class AsyncFileSystem(ActorProxy):
+#     async_names = ["list_stats", "read", "write", "create_dir",
+#                    "move_tree", "copy_tree", "delete_tree"]
+#     sync_names = ["exists", "isdir", "isempty", "stat",
+#                   "touch", "move_to_trash"]
+
+    
 ## possible XMPP:
 # <iq type="get">
 #   <files since=...>
