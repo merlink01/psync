@@ -31,7 +31,10 @@ def main(fs_path, db_path):
     new_utime = int(clock.now_unix())
     new_history_entries = []  # (path, utime, size, mtime)
     #names_to_ignore = {"Library", ".Trash", ".m2", ".hg", ".git"}
-    names_to_ignore = {"Library", ".Trash", ".m2"}
+    names_to_ignore = {"Library", ".Trash", "iPod Photo Cache",
+                       ".m2", ".ivy2", ".fontconfig", ".thumbnails",
+                       ".hg", ".git",
+                       ".DS_Store"}
     for (change, path, size, mtime, history) in \
         scan_and_diff(fs, fs_path, names_to_ignore, history_by_path):
       # print (change, path, size, mtime, history)
@@ -69,7 +72,7 @@ def scan_and_diff(fs, root, names_to_ignore, history_by_path):
       else:
         yield ("unchanged", path, size, mtime, history)
 
-  for path in missing_paths:
+  for path in sorted(missing_paths):
     yield ("deleted", path, DELETED_SIZE, DELETED_MTIME, history)
 
 
