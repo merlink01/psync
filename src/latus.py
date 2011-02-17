@@ -1,14 +1,18 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
+import fnmatch
 import sqlite3
 import sys
 import time
 
-from fs import FileSystem
+from fs import FileSystem, join_paths
 
 #*** hash files when we find a change
-#*** add peerid to files.db
+#*** turn off hashing easily
+#*** do double-check after hashing (re-stat)
+#*** more logging (instead of printing)
 
+#*** add peerid to files.db
 #*** add more filtring
 #  after scanning and diffing, but before inseting into history
 #  memoize
@@ -17,6 +21,7 @@ from fs import FileSystem
 #*** after fetching and merging, just let metadata scanner take care
 #    of updating history.  Only "inject" things when we resolve a conflict
 #    by using the local to win.
+#*** commit in chunks of 1,000 so files start syncing even while scanning the first time (which will take a long time)
 
 def main(fs_path, db_path):
   clock = Clock()
@@ -35,16 +40,25 @@ def main(fs_path, db_path):
                        ".m2", ".ivy2", ".fontconfig", ".thumbnails",
                        ".hg", ".git",
                        ".DS_Store"}
+    #*** memoize and test performance impact
+    #  also, should compile regexes ahead of time
+    paths_to_ignore = {"*.hds", "*.mem"}
     for (change, path, size, mtime, history) in \
         scan_and_diff(fs, fs_path, names_to_ignore, history_by_path):
-      # print (change, path, size, mtime, history)
-      if change != "unchanged":
-        # TODO: if history[-1].utime > new_utime, make sure to
-        # increase utime.  Otherwise reseting the clock will mess
-        # things up.
-        # *** wait and then rescan for the changed ones
-        # *** hash the file
-        new_history_entries.append((path, new_utime, size, mtime))
+      if any(fnmatch.fnmatch(path, path_to_ignore)
+             for path_to_ignore in paths_to_ignore):
+        change = "ignored"  #*** make a better name?
+
+      print (change, path, size, mtime, history)
+      # TODO: make an enum?
+      if change == "created" or change == "changed":
+        # TODO: make a FileSystem that always knows how to do prepend a path?
+        hash = fs.hash(join_paths(fs_path, path))
+        print ("hashed", path, hash.encode("hex"))
+        new_history_entries.append((path, new_utime, size, mtime, hash))
+      elif change == "deleted":
+        new_history_entries.append((path, new_utime, size, mtime, hash))
+        hash = ""
     print ("scanned fs", len(new_history_entries))
 
     insert_file_history_entries_into_db(db_conn, new_history_entries)
@@ -52,6 +66,15 @@ def main(fs_path, db_path):
 
     history_by_path2 = read_file_history_from_db(db_conn)
     print ("read history2", len(history_by_path2))
+
+    total_size = 0
+    total_count = 0
+    for path, history in history_by_path2.iteritems():
+      (latest_utime, latest_size, latest_mtime, latest_hash) = max(history)
+      total_size += latest_size
+      total_count += 1
+    
+      
 
 # yields (change, path, size, mtime, history)
 def scan_and_diff(fs, root, names_to_ignore, history_by_path):
@@ -66,7 +89,7 @@ def scan_and_diff(fs, root, names_to_ignore, history_by_path):
     if history is None:
       yield ("created", path, size, mtime, history)
     else:
-      (latest_utime, latest_size, latest_mtime) = max(history)
+      (latest_utime, latest_size, latest_mtime, latest_hash) = max(history)
       if size != latest_size or not mtimes_eq(mtime, latest_mtime):
         yield ("changed", path, size, mtime, history)
       else:
@@ -98,7 +121,8 @@ def create_file_history_db(db_conn):
       """create table files (path varchar,
                              utime integer,
                              size integer,
-                             mtime integer)""")
+                             mtime integer,
+                             hash varchar)""")
     db_conn.commit()
     return True
   except sqlite3.OperationalError:
@@ -113,10 +137,10 @@ def read_file_history_from_db(db_conn):
   history_by_path = {}
 
   db_cursor = db_conn.cursor()
-  for (path, utime, size, mtime) in db_cursor.execute(
-    """select path, utime, size, mtime from files"""):
+  for (path, utime, size, mtime, hash) in db_cursor.execute(
+    """select path, utime, size, mtime, hash from files"""):
     history = history_by_path.get(path)
-    latest = (utime, size, mtime)
+    latest = (utime, size, mtime, hash)
     if history is None:
       history_by_path[path] = [latest]
     else:
@@ -130,8 +154,8 @@ def insert_file_history_entries_into_db(db_conn, new_history_entries):
   
   for entry in new_history_entries:
     db_cursor.execute(
-      """insert into files (path, utime, size, mtime)
-         values (?, ?, ?, ?)""", entry)
+      """insert into files (path, utime, size, mtime, hash)
+         values (?, ?, ?, ?, ?)""", entry)
   db_conn.commit()
 
 if __name__ == "__main__":
