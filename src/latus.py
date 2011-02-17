@@ -9,6 +9,7 @@ import time
 
 from fs import FileSystem, join_paths
 
+#*** make history entry a Record
 #*** memoize and test performance impact of paths_to_ignore
 #*** do double-check after hashing (re-stat)
 #*** more logging (instead of printing)
@@ -24,7 +25,7 @@ from fs import FileSystem, join_paths
 #    by using the local to win.
 #*** commit in chunks of 1,000 so files start syncing even while scanning the first time (which will take a long time)
 
-def main(fs_path, db_path):
+def main(fs_root, db_path):
   clock = Clock()
   fs = FileSystem()
   #hash_type = hashlib.sha1
@@ -37,7 +38,7 @@ def main(fs_path, db_path):
   patterns_to_ignore = {re.compile(fnmatch.translate(pattern), re.IGNORECASE)
                         for pattern in 
                         # "*.mp3", "*.jpg", "*.mp4"
-                        ["*.hds", "*.mem", "*.vob", "*.mp4"]}
+                        ["*.hds", "*.mem", "*.vob", "*.mp4", "*~"]}
   
   with sqlite3.connect(db_path) as db_conn:
     create_file_history_db(db_conn)
@@ -49,7 +50,7 @@ def main(fs_path, db_path):
     new_history_entries = []  # (path, utime, size, mtime)
     #  also, should compile regexes ahead of time
     for (change, path, size, mtime, history) in \
-        scan_and_diff(fs, fs_path, names_to_ignore, history_by_path):
+        scan_and_diff(fs, fs_root, names_to_ignore, history_by_path):
       if any(pattern.match(path) for pattern in patterns_to_ignore):
         change = "ignored"  #*** make a better name?
 
@@ -61,19 +62,33 @@ def main(fs_path, db_path):
       if change == "created" or change == "changed":
         # TODO: make a FileSystem that always knows how to do prepend a path?
         print ("hash", path)
-        hash = fs.hash(join_paths(fs_path, path)).encode("hex")
+        hash = fs.hash(join_paths(fs_root, path)).encode("hex")
         print ("hashed", path, hash)
         new_history_entries.append((path, new_utime, size, mtime, hash))
       elif change == "deleted":
         new_history_entries.append((path, new_utime, size, mtime, hash))
         hash = ""
     print ("scanned fs", len(new_history_entries))
+    
+    # *** tests instability
+    fs.touch(join_paths(fs_root, db_path), clock.now_unix())
+    rescan_by_path = {path: (size, mtime) for path, size, mtime in
+                      fs.stats(fs_root,
+                               (path for (path, utime, size, mtime, hash) in
+                                new_history_entries))}
+    print ("rescanned fs", len(rescan_by_path))
 
-    #*** use iterator, and maybe just combine with scan_and_diff
-    for (path, new_utime, new_size, new_mtime) in new_history_entries:
-      pass
+    def stable_new_history_entries():
+      for (path, utime, new_size, new_mtime, hash) in new_history_entries:
+        (rescan_size, rescan_mtime) = rescan_by_path.get(path, (None, None))
+        if new_size == rescan_size and new_mtime == rescan_mtime:
+          yield (path, utime, new_size, new_mtime, hash)
+        else:
+          print ("unstable", path,
+                 (new_size, rescan_size), (new_mtime, rescan_mtime))
+    stable_new_history_entries = list(stable_new_history_entries())
 
-    insert_file_history_entries_into_db(db_conn, new_history_entries)
+    insert_file_history_entries_into_db(db_conn, stable_new_history_entries)
     print ("inserted", len(new_history_entries))
 
     history_by_path2 = read_file_history_from_db(db_conn)
