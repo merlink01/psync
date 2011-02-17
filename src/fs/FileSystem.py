@@ -114,22 +114,24 @@ class FileSystem(Record("path_encoder", "trash")):
         return True
 
 
-    # yields (child_path, size, mtime) relative to given path On my
+    # yields (path, size, mtime) relative to root
     #
-    # 2008 Macbook, reads about 10,000 files/sec when doing small
+    # On my 2008 Macbook, reads about 10,000 files/sec when doing small
     # groups (5,000 files), and 4,000 files/sec when doing large
     # (200,000).  These means it can take anywhere from .1 sec to 1
     # minute.  Cacheing seems to improve performance by about 30%.
     # While running, the CPU is pegged :(.  Oh well, 60,000 files in 8
     # sec isn't too bad.  That's my whole home directory.
-    def list_stats(fs, path, names_to_ignore = {}):
-        encoded_root = fs.encode_path(path)
+    def list_stats(fs, root, names_to_ignore = {}):
+        return fs.stats(root,
+                        fs.list(root, names_to_ignore = names_to_ignore))
 
+    # yields a path for each file found relative to the root
+    def list(fs, root, names_to_ignore = {}):
         listdir = os.listdir
         join = os.path.join
         isdir = os.path.isdir
         islink = os.path.islink
-        stat = os.stat
 
         def walk(encoded_parent):
             child_names = listdir(encoded_parent)
@@ -143,23 +145,30 @@ class FileSystem(Record("path_encoder", "trash")):
                     else:
                         yield encoded_path
 
+        encoded_root = fs.encode_path(root)
         root_len = len(os.path.join(encoded_root, ""))
         for encoded_path in walk(encoded_root):
+            encoded_relative_path = encoded_path[root_len:]
             try:
+                relative_path = fs.decode_path(encoded_relative_path)
+            except Exception as err:
+                log.warning("Could not decode file path {}: {}".format(
+                    encoded_relative_path, err))
+            else:
+                yield relative_path
+
+    # yields (path, size, mtime) relative to root for each path in paths
+    def stats(fs, root, paths):
+        stat = os.stat
+        for path in paths:
+            try:
+                encoded_path = fs.encode_path(join_paths(root, path))
                 stats = stat(encoded_path)
-                size  = stats[STAT_SIZE_INDEX]
+                size = stats[STAT_SIZE_INDEX]
                 mtime = stats[STAT_MTIME_INDEX]
-                path  = fs.decode_path(encoded_path[root_len:])
                 yield path, size, mtime
-            except UnicodeDecodeError:
-                raise
-                # TODO:
-                # log.warning(
-                #print("Could not decode file path {}".format(
-                #    encoded_path))
             except OSError:
                 pass  # Probably a link
-
 
     # returns (size, mtime)
     def stat(fs, path):
@@ -178,7 +187,14 @@ class FileSystem(Record("path_encoder", "trash")):
             else:
                 return file.read()
 
+    # On my 2008 Macbook, with SHA1, it can hash 50,000 files
+    # totalling 145GB (about 3MB each file) in 48min, which is 17
+    # files totalling 50MB/sec.  So, if you scan 30GB of new files, it
+    # will take 10min.  During that time, CPU usage is ~80%.
     def hash(fs, path, hash_type = hashlib.sha1, chunk_size = 100000):
+        if hash_type == None:
+            return ""
+
         hasher = hash_type()
         for chunk_data in fs._iter_chunks(path, chunk_size):
             hasher.update(chunk_data)
