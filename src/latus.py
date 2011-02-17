@@ -1,14 +1,15 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
 import fnmatch
+import hashlib
+import re
 import sqlite3
 import sys
 import time
 
 from fs import FileSystem, join_paths
 
-#*** hash files when we find a change
-#*** turn off hashing easily
+#*** memoize and test performance impact of paths_to_ignore
 #*** do double-check after hashing (re-stat)
 #*** more logging (instead of printing)
 
@@ -26,7 +27,18 @@ from fs import FileSystem, join_paths
 def main(fs_path, db_path):
   clock = Clock()
   fs = FileSystem()
-
+  #hash_type = hashlib.sha1
+  hash_type = hashlib.md5
+  #hash_type = None
+  names_to_ignore = {"Library", ".Trash", "iPod Photo Cache",
+                     ".m2", ".ivy2", ".fontconfig", ".thumbnails",
+                     ".hg", ".git",
+                     ".DS_Store"}
+  patterns_to_ignore = {re.compile(fnmatch.translate(pattern), re.IGNORECASE)
+                        for pattern in 
+                        # "*.mp3", "*.jpg", "*.mp4"
+                        ["*.hds", "*.mem", "*.vob", "*.mp4"]}
+  
   with sqlite3.connect(db_path) as db_conn:
     create_file_history_db(db_conn)
 
@@ -35,55 +47,47 @@ def main(fs_path, db_path):
 
     new_utime = int(clock.now_unix())
     new_history_entries = []  # (path, utime, size, mtime)
-    #names_to_ignore = {"Library", ".Trash", ".m2", ".hg", ".git"}
-    names_to_ignore = {"Library", ".Trash", "iPod Photo Cache",
-                       ".m2", ".ivy2", ".fontconfig", ".thumbnails",
-                       ".hg", ".git",
-                       ".DS_Store"}
-    #*** memoize and test performance impact
     #  also, should compile regexes ahead of time
-    paths_to_ignore = {"*.hds", "*.mem"}
     for (change, path, size, mtime, history) in \
         scan_and_diff(fs, fs_path, names_to_ignore, history_by_path):
-      if any(fnmatch.fnmatch(path, path_to_ignore)
-             for path_to_ignore in paths_to_ignore):
+      if any(pattern.match(path) for pattern in patterns_to_ignore):
         change = "ignored"  #*** make a better name?
 
-      print (change, path, size, mtime, history)
+      #if change != "unchanged":
+      #  print (change, path, size, mtime, history)
+      if change == "ignored":
+        print (change, path, size, mtime, history)
       # TODO: make an enum?
       if change == "created" or change == "changed":
         # TODO: make a FileSystem that always knows how to do prepend a path?
-        hash = fs.hash(join_paths(fs_path, path))
-        print ("hashed", path, hash.encode("hex"))
+        print ("hash", path)
+        hash = fs.hash(join_paths(fs_path, path)).encode("hex")
+        print ("hashed", path, hash)
         new_history_entries.append((path, new_utime, size, mtime, hash))
       elif change == "deleted":
         new_history_entries.append((path, new_utime, size, mtime, hash))
         hash = ""
     print ("scanned fs", len(new_history_entries))
 
+    #*** use iterator, and maybe just combine with scan_and_diff
+    for (path, new_utime, new_size, new_mtime) in new_history_entries:
+      pass
+
     insert_file_history_entries_into_db(db_conn, new_history_entries)
     print ("inserted", len(new_history_entries))
 
     history_by_path2 = read_file_history_from_db(db_conn)
-    print ("read history2", len(history_by_path2))
-
-    total_size = 0
-    total_count = 0
-    for path, history in history_by_path2.iteritems():
-      (latest_utime, latest_size, latest_mtime, latest_hash) = max(history)
-      total_size += latest_size
-      total_count += 1
-    
+    print ("read history2", len(history_by_path2),
+           sum(max(history)[1] for history in history_by_path2.itervalues()))
       
 
 # yields (change, path, size, mtime, history)
 def scan_and_diff(fs, root, names_to_ignore, history_by_path):
   missing_paths = set(history_by_path.iterkeys())
   for path, size, mtime in fs.list_stats(root, names_to_ignore):
-    #***
-    #print path, size, mtime
-
     missing_paths.discard(path)
+    # *** do filtering here?
+    # *** use enum for change type?
 
     history = history_by_path.get(path)
     if history is None:
@@ -177,7 +181,9 @@ if __name__ == "__main__":
 #         # Now, how do we setup periodic things?
 
 # class AsyncFileSystem(ActorProxy):
-#     async_names = ["list_stats", "read", "write", "create_dir",
+#*** put list, stats, and list stats into a list (instead of iterator)
+#     async_names = ["list", "stats", "list_stats",
+#                    "read", "write", "create_dir",
 #                    "move_tree", "copy_tree", "delete_tree"]
 #     sync_names = ["exists", "isdir", "isempty", "stat",
 #                   "touch", "move_to_trash"]
