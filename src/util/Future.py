@@ -27,7 +27,7 @@ class Future:
 
 
     def is_set(self):
-        return self.event.is_set():
+        return self.event.is_set()
 
     # returns (is_set, value), or throws an error
     def get(self):
