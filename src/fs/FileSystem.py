@@ -1,8 +1,9 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
+import hashlib
 import os
-import shutil
 import platform
+import shutil
 
 from util import Record
 
@@ -114,13 +115,13 @@ class FileSystem(Record("path_encoder", "trash")):
 
 
     # yields (child_path, size, mtime) relative to given path On my
-
+    #
     # 2008 Macbook, reads about 10,000 files/sec when doing small
     # groups (5,000 files), and 4,000 files/sec when doing large
     # (200,000).  These means it can take anywhere from .1 sec to 1
     # minute.  Cacheing seems to improve performance by about 30%.
     # While running, the CPU is pegged :(.  Oh well, 60,000 files in 8
-    # sec isn't too bad.
+    # sec isn't too bad.  That's my whole home directory.
     def list_stats(fs, path, names_to_ignore = {}):
         encoded_root = fs.encode_path(path)
 
@@ -176,6 +177,20 @@ class FileSystem(Record("path_encoder", "trash")):
                 return file.read(size)
             else:
                 return file.read()
+
+    def hash(fs, path, hash_type = hashlib.sha1, chunk_size = 100000):
+        hasher = hash_type()
+        for chunk_data in fs._iter_chunks(path, chunk_size):
+            hasher.update(chunk_data)
+        return hasher.digest()
+
+    def _iter_chunks(fs, path, chunk_size):
+        encoded_path = fs.encode_path(path)
+        with open(path, fs.READ_MODE) as file:
+            chunk = file.read(chunk_size)
+            while chunk:
+                yield chunk
+                chunk = file.read(chunk_size)
 
     def write(fs, path, contents, start = None, mtime = None):
         encoded_path = fs.encode_path(path)
