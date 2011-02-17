@@ -191,6 +191,7 @@ class FileSystem(Record("path_encoder", "trash")):
     # totalling 145GB (about 3MB each file) in 48min, which is 17
     # files totalling 50MB/sec.  So, if you scan 30GB of new files, it
     # will take 10min.  During that time, CPU usage is ~80%.
+    # SHA1: 20min
     def hash(fs, path, hash_type = hashlib.sha1, chunk_size = 100000):
         if hash_type == None:
             return ""
