@@ -18,6 +18,13 @@ DELETED_MTIME = 0
 def mtimes_eq(mtime1, mtime2):
   return abs(mtime1 - mtime2) < 2
 
+#*** add peerid, groupid
+#*** give a *set* of directories to ignore
+#  it's fast, and should make scanning faster
+#*** add filtering by full path name, but *memoize*
+#*** do filtering after scanning and diffing, but before inseting into history
+#  only have to check filter for ones changed
+#  can read attributes for Win32, too
 # returns bool: created db or not
 def create_file_history_db(db_conn):
   db_cursor = db_conn.cursor()
@@ -119,6 +126,20 @@ if __name__ == "__main__":
     history_by_path2 = read_file_history_from_db(db_conn)
     print ("read history2", len(history_by_path2))
 
+## possible XMPP:
+# <iq type="get">
+#   <files since=...>
+#   <chunk hash=... loc=... size=...>
+# <iq type="result">
+#   <files>
+#     <file path=... mtime=... size=... utime=...>
+#   <chunk hash=... loc=... size=...>
+#   
+## For permissions, we need:
+# (peerid, groupid, prefix?, can_read, can_write, is_owner)
+# what is a groupid?
+# do we use prefix?
+# where is this stored?
 
 #import gevent
 ## Doesn't seem to work welll with sleekxmpp :(
