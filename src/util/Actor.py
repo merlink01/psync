@@ -8,22 +8,6 @@ from util import Record
 class ActorStopped(Exception):
     pass
 
-class ActorCall(Record("name", "args", "kargs", "future")):
-    pass
-
-def async(method):
-    name = method.__name__
-
-    def async_method(self, *args, **kargs):
-        #***  .set(val = None), .throw(err), get(timeout = None)
-        future = Future()
-        self.send(ActorCall(name, args, kargs, future))
-        return future
-
-    async_method.__name__ = name
-    return async_method
-    
-
 class Actor:
     def __init__(self, name = None):
         self.name = name or self.__class__.__name__
@@ -50,8 +34,7 @@ class Actor:
                     pass  # Try reading again.
                 else:
                     try:
-                        call_into_future(future, \
-                            lambda: getattr(self, name)(*args, **kargs))
+                        future.call(lambda: getattr(self, name)(*args, **kargs))
                     except Exception as err:
                         logging.warning("Ignoring error in {}: {}".format(
                             self.name, err))
@@ -61,6 +44,29 @@ class Actor:
             logging.error("Died from error in {}: {}".format(
                 self.name, err))
 
+def async(method):
+    name = method.__name__
+
+    def async_method(self, *args, **kargs):
+        future = Future()
+        self.send((name, args, kargs, future))
+        return future
+
+    async_method.__name__ = name
+    return async_method
+    
+class ActorProxy:
+    async_names = []
+    sync_names = []
+
+    def __init__(self, fs):
+        for async_name in self.async_names:
+            setattr(self, async_name,
+                    async(unbind_method(getattr(fs, async_name))))
+        for sync_name in self.sync_names:
+            setattr(self, sync_name,
+                    unbind_method(getattr(fs, async_name)))
+
 def start_thread(func, name = None, isdaemon = True):
     thread = threading.Thread(target = func)
     thread.setName(name)
@@ -68,23 +74,8 @@ def start_thread(func, name = None, isdaemon = True):
     thread.start()
     return thread
     
-def call_into_future(future, func):
-    try:
-        result = func()
-    except Exception as err:
-        future.throw(err)
-    else:
-        future.set(result)
+def unbind_method(method):
+    def unbound_method(self, *args, **kargs):
+        method(*args, **kargs)
+    return unbound_method
 
-class FileScanner(Actor):
-    def __init__(self, fs):
-        self.fs = fs
-
-    @async
-    def scan(self, path):
-        for (child_path, size, mtime) in self.fs.list_stats(path):
-            if self.stopped:
-                raise ActorStopped()
-                
-        
-    
