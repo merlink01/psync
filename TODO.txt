@@ -1,14 +1,17 @@
-
 scanning/history
+  next steps
+    add peerid to files.db
+    get a daemon going that just records metadata all of the time
+    get a daemon going that reads a second db file every so often,
+      copies it, and figures out what is different.
+    get an xmpp client that serves requests for metadata
+    get an xmpp client that requests metadata and copies it
+
   latus.py improvements
-    join main and scan_and_diff into something cleaner (or use change enum)
-      use enum for change type?
+    move RunTime(r) out
     logging instead of printing
     logging passed to FileSystem
   
-  implement FileHistoryStore
-    add peerid to files.db
-    
   implement FileChunkStore
     ChunkId(Record("hash", "loc", "size"))
     stores in db
@@ -19,6 +22,7 @@ scanning/history
     write(chunkid, data)
     read(chunkid) -> data  # ?    
     remove(chunkid)
+
   implement downloading algo
     def begin_fetch_write(chunkid):
       token = chunk_store.begin(chunkid)

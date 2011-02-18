@@ -1,5 +1,7 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
+import time
+
 import sql
 
 from decorators import decorator, decorator_with_args, into
@@ -8,6 +10,10 @@ from Actor import Actor
 from Clock import Clock
 from Future import Future
 from Record import Record
+
+class Clock:
+    def unix(_):
+        return time.time()
 
 def groupby(vals, key = None):
     group_by_key = {}
@@ -25,3 +31,8 @@ def setdefault(dct, key, get_val, *args, **kargs):
         dct[key] = val
         return val
     
+def partition(vals, predicate):
+    trues, falses = [], []
+    for val in vals:
+        (trues if predicate(val) else falses).append(val)
+    return trues, falses

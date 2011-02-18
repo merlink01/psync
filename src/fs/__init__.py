@@ -2,6 +2,7 @@
 
 from FileHistoryStore import FileHistoryStore, FileHistoryEntry
 from FileSystem import FileSystem, join_paths
+from PathFilter import PathFilter
 
 # returns whether mtimes are within 1 sec of each other, because
 # Windows shaves off a bit of mtime info.

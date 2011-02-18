@@ -1,21 +1,24 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
 import fnmatch
+import re
 
-class PathFilter(Record("patterns_to_drop", "paths_to_drop")):
-    def __new__(cls, globs_to_drop):
-        patterns_to_drop = compile_globs(globs)
-        return cls.new(patterns_to_drop, set())
+from util import Record
 
-    def keep_path(self, path):
-        if path in self.paths_to_drop:
-            return False
-        elif any(pattern.match(path) for pattern in self.patterns_to_drop):
-            self.paths_to_drop.add(path)
-            return False
-        else:
+class PathFilter(Record("patterns_to_ignore", "paths_to_ignore")):
+    def __new__(cls, globs_to_ignore):
+        patterns_to_ignore = compile_globs(globs_to_ignore)
+        return cls.new(patterns_to_ignore, set())
+
+    def ignore_path(self, path):
+        if path in self.paths_to_ignore:
             return True
+        elif any(pattern.match(path) for pattern in self.patterns_to_ignore):
+            self.paths_to_ignore.add(path)
+            return True
+        else:
+            return False
 
 def compile_globs(globs):
-    return (re.compile(fnmatch.translate(glob), re.IGNORECASE)
-            for glob in globs)
+    return [re.compile(fnmatch.translate(glob), re.IGNORECASE)
+            for glob in globs]
