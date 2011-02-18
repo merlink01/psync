@@ -1,7 +1,9 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
+import time
+
 class Clock:
-    def now_unix(self):
+    def now_unix(_):
         return time.time()
 
     def run_time(clock, func, *args, **kargs):
