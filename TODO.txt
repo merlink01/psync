@@ -2,11 +2,11 @@
 scanning/history
   latus.py improvements
     join main and scan_and_diff into something cleaner (or use change enum)
+      use enum for change type?
     logging instead of printing
     logging passed to FileSystem
   
   implement FileHistoryStore
-    caches in memory
     add peerid to files.db
     
   implement FileChunkStore

@@ -16,3 +16,12 @@ def groupby(vals, key = None):
         group.append(val)
     return group_by_key
 
+# like dct.setdefault(key, get_val(*args, **kargs)), except lazy
+def setdefault(dct, key, get_val, *args, **kargs):
+    try:
+        return dct[key]
+    except KeyError:
+        val = get_val(*args, **kargs)
+        dct[key] = val
+        return val
+    

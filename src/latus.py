@@ -50,7 +50,7 @@ def main(fs_root, db_path):
         
         history_entries, run_time = clock.run_time(history_store.read_entries)
         history_by_path = groupby(history_entries, FileHistoryEntry.get_path)
-        print ("read history", run_time, len(history_by_path))
+        print ("read history", run_time, len(history_entries), len(history_by_path))
 
         def new_history_entries():
             new_utime = int(clock.now_unix())
@@ -79,7 +79,6 @@ def main(fs_root, db_path):
         new_history_entries, run_time = clock.run_time(lambda: list(new_history_entries()))
         print ("scanned and diffed and hashed", run_time, len(new_history_entries))
         
-        # *** tests instability
         fs.touch(db_path, clock.now_unix())
         rescan_by_path, run_time = clock.run_time(
             lambda: dict((path, (size, mtime)) for path, size, mtime in
@@ -102,7 +101,7 @@ def main(fs_root, db_path):
 
         history_entries, run_time = clock.run_time(history_store.read_entries)
         history_by_path2 = groupby(history_entries, FileHistoryEntry.get_path)
-        print ("read history again", run_time, len(history_by_path2), \
+        print ("read history again", run_time, len(history_entries), len(history_by_path2), \
                    sum(max(history).size for history in history_by_path2.itervalues()))
                       
 
@@ -111,8 +110,6 @@ def scan_and_diff(fs, root, names_to_ignore, history_by_path):
     missing_paths = set(history_by_path.iterkeys())
     for path, size, mtime in fs.list_stats(root, names_to_ignore):
         missing_paths.discard(path)
-        # *** do filtering here?
-        # *** use enum for change type?
 
         history = history_by_path.get(path)
         if history is None:

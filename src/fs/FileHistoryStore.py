@@ -2,7 +2,7 @@
 
 import sqlite3
 
-from util import Record, sql, into
+from util import Record, sql, into, setdefault
 
 TABLE_NAME = "files"
 TABLE_FIELDS = ["path", "utime", "size", "mtime", "hash"]
@@ -10,18 +10,21 @@ TABLE_FIELDS = ["path", "utime", "size", "mtime", "hash"]
 class FileHistoryEntry(Record("path", "utime", "size", "mtime", "hash")):
     pass
 
-class FileHistoryStore(Record("db_conn")):
+class FileHistoryStore(Record("db_conn", "entries_by_peerid")):
     def __new__(cls, db_conn):
         create_table(db_conn)
-        return cls.new(db_conn)
+        return cls.new(db_conn, {})
 
     #*** user peerid
-    def read_entries(self):
-        return select_entries(self.db_conn)
+    def read_entries(self, peerid = ""):
+        return setdefault(self.entries_by_peerid, peerid,
+                          select_entries, self.db_conn)
 
     #*** user peerid
-    def add_entries(self, entries):
-        return insert_entries(self.db_conn, entries)
+    def add_entries(self, new_entries, peerid = ""):
+        insert_entries(self.db_conn, new_entries)
+        if peerid in self.entries_by_peerid:
+            self.entries_by_peerid[peerid].extend(new_entries)
 
 def create_table(db_conn):
     db_cursor = db_conn.cursor()
