@@ -7,7 +7,6 @@ import sql
 from decorators import decorator, decorator_with_args, into
 
 from Actor import Actor
-from Clock import Clock
 from Future import Future
 from Record import Record
 
