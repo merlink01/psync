@@ -1,3 +1,54 @@
+
+scanning/history
+  latus.py improvements
+    join main and scan_and_diff into something cleaner (or use change enum)
+    logging instead of printing
+    logging passed to FileSystem
+  
+  implement FileHistoryStore
+    caches in memory
+    add peerid to files.db
+    
+  implement FileChunkStore
+    ChunkId(Record("hash", "loc", "size"))
+    stores in db
+    caches in memory
+    get_status(chunkid)
+    begin(chunk) -> token (probably time)
+    cancel(chunkid, token)
+    write(chunkid, data)
+    read(chunkid) -> data  # ?    
+    remove(chunkid)
+  implement downloading algo
+    def begin_fetch_write(chunkid):
+      token = chunk_store.begin(chunkid)
+      try:
+        data = ** fetch **
+      except:
+        chunk_store.cancel(chunkid, token)
+        ** handle error **
+      else:
+        chunk_store.write(chunkid, data)
+
+    while chunk_queue:
+      chunkid = chunk_queue.get()
+      state = chunk_store.get_status(chunkid)
+      if state == complete:
+        pass  # great!
+      elif state == inprogress
+        inprogress_chunk_queue.put(chunkid)
+      else:
+        begin_fetch_write(chunkid)
+    
+    while inprogress_chunk_queue:
+      chunkid = chunk_queue.get()
+      if state == complete:
+        pass  # great!
+      else:  # even if in progress
+        begin_fetch_write(chunkid)
+        
+      
+
 overall:
   local fs->metadata working
     as daemon that runs all the time
@@ -20,6 +71,18 @@ xmpp:
 concurency:
   try gevent first
   then try concurrence
+
+improvements later
+  after fetching and merging
+    just let metadata scanner take care
+    of updating history.  Only "inject" things when we resolve a conflict
+    by using the local to win.
+  add gropuid and security
+  commit in chunks of 1,000 so files start syncing even while
+    scanning the first time (which will take a long time)
+  add file watchers (win32 and inotify for now)
+  filter by Win32 attributes?
+
 
 python
   relative imports
