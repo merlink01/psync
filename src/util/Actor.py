@@ -3,7 +3,7 @@
 import logging
 import Queue
 
-from util import Record
+from util import Record, decorator
 
 class ActorStopped(Exception):
     pass
@@ -44,16 +44,11 @@ class Actor:
             logging.error("Died from error in {0}: {1}".format(
                 self.name, err))
 
-def async(method):
-    name = method.__name__
-
-    def async_method(self, *args, **kargs):
-        future = Future()
-        self.send((name, args, kargs, future))
-        return future
-
-    async_method.__name__ = name
-    return async_method
+@decorator
+def async(method, self, *args, **kargs):
+    future = Future()
+    self.send((method.__name__, args, kargs, future))
+    return future
     
 class ActorProxy:
     async_names = []
