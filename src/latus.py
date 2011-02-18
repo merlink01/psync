@@ -10,34 +10,39 @@ import time
 from fs import FileSystem, join_paths
 from util import Record
 
-#*** memoize and test performance impact of paths_to_ignore
 #*** more logging (instead of printing)
-#*** make history.db a class
-
+#*** join main and scan_and_diff into something cleaner
+#*** try memoizing filtering
 #*** add peerid to files.db
-#*** add more filtring
-#  after scanning and diffing, but before inseting into history
-#  memoize
-#  can read attributes for Win32, too
+#**** sync two local directories from one .db file
+
+#*** make history.db a class
+#*** filter by Win32 attributes?
 #*** add gropuid
 #*** after fetching and merging, just let metadata scanner take care
 #    of updating history.  Only "inject" things when we resolve a conflict
 #    by using the local to win.
-#*** commit in chunks of 1,000 so files start syncing even while scanning the first time (which will take a long time)
+#*** commit in chunks of 1,000 so files start syncing even while
+#    scanning the first time (which will take a long time)
 
 def main(fs_root, db_path):
   clock = Clock()
   fs = FileSystem()
-  hash_type = None  # hashlib.md5  # hashlib.sha1
+  hash_type = hashlib.sha1  # None
   names_to_ignore = {"Library", ".Trash", "iPod Photo Cache",
                      ".m2", ".ivy2", ".fontconfig", ".thumbnails",
                      ".hg", ".git",
                      ".DS_Store"}
+  # TODO: After an initial history scan, this causes 20% increase in
+  # scan time (for 5 patterns).  The first time, however, it doubles
+  # the scan time.  Of course, the first time, that's dwarfed by the
+  # hash time anyway.  If we really wanted to improve the performance
+  # beyond that, we could try memoizing.
   patterns_to_ignore = {re.compile(fnmatch.translate(pattern), re.IGNORECASE)
                         for pattern in 
                         # "*.mp3", "*.jpg", "*.mp4"
                         ["*.hds", "*.mem", "*.vob", "*.mp4", "*~"]}
-  
+ 
   with sqlite3.connect(db_path) as db_conn:
     create_file_history_db(db_conn)
 
@@ -61,7 +66,7 @@ def main(fs_root, db_path):
         # TODO: make a FileSystem that always knows how to do prepend a path?
         print ("hash", path)
         hash = fs.hash(join_paths(fs_root, path), hash_type).encode("hex")
-        #print ("hashed", path, hash)
+        print ("hashed", path, hash)
         new_history_entries.append(
           FileHistoryEntry(path, new_utime, size, mtime, hash))
       elif change == "deleted":
@@ -80,11 +85,11 @@ def main(fs_root, db_path):
     def stable_new_history_entries():
       for entry in new_history_entries:
         (rescan_size, rescan_mtime) = \
-                      rescan_by_path.get(entry.path, (None, None))
+            rescan_by_path.get(entry.path, (DELETED_SIZE, DELETED_MTIME))
         if entry.size == rescan_size and entry.mtime == rescan_mtime:
           yield entry
         else:
-          print ("unstable", path,
+          print ("unstable", entry.path,
                  (entry.size, rescan_size), (entry.mtime, rescan_mtime))
     stable_new_history_entries = list(stable_new_history_entries())
 

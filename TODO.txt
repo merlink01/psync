@@ -1,10 +1,9 @@
-file system:
-  don't traverse ~/.Trash
-
 overall:
   local fs->metadata working
-  local fs->fs 1-way sync
-  local fs<->fs 2-way sync (merging)
+    as daemon that runs all the time
+  local fs->fs 2-way sync (merging)
+    with two threads that commuicate with one another (two separate DBs)
+    as daemon that runs all the time
 
   xmpp<->xmpp messages
   xmpp<->xmpp metadata syncing for one user
