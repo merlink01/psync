@@ -1,6 +1,7 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
 import hashlib
+import logging
 import os
 import platform
 import shutil
@@ -39,7 +40,7 @@ def PathEncoder():
 class UnixPathEncoder(Record("encoding")):
     def encode_path(self, path):
         if self.encoding:
-            return path.encode(encodeding)
+            return path.encode(self.encoding)
         else:
             return path
 
@@ -84,14 +85,15 @@ class FileSystemTrash(Record("trash_path")):
                 ancestor = parent_path(path)
                 
 
-class FileSystem(Record("path_encoder", "trash")):
+class FileSystem(Record("path_encoder", "trash", "log")):
     READ_MODE           = "rb"
     NEW_WRITE_MODE      = "wb"
     EXISTING_WRITE_MODE = "r+b"
 
-    def __new__(cls, path_encoder = None, trash = None):
+    def __new__(cls, path_encoder = None, trash = None, log = None):
         path_encoder = path_encoder or PathEncoder()
-        return cls.new(path_encoder, trash)
+        log = log or logging.getLogger(cls.__name__)
+        return cls.new(path_encoder, trash, log)
 
     def encode_path(fs, path):
         return fs.path_encoder.encode_path(path)
@@ -122,6 +124,9 @@ class FileSystem(Record("path_encoder", "trash")):
     # minute.  Cacheing seems to improve performance by about 30%.
     # While running, the CPU is pegged :(.  Oh well, 60,000 files in 8
     # sec isn't too bad.  That's my whole home directory.
+    #
+    # On my faster linux desktop machine, it's about 30,000 files/sec
+    # when cached, even for 200,00 files, which is a big improvement.
     def list_stats(fs, root, names_to_ignore = {}):
         return fs.stats(root,
                         fs.list(root, names_to_ignore = names_to_ignore))
@@ -152,8 +157,8 @@ class FileSystem(Record("path_encoder", "trash")):
             try:
                 relative_path = fs.decode_path(encoded_relative_path)
             except Exception as err:
-                log.warning("Could not decode file path {}: {}".format(
-                    encoded_relative_path, err))
+                fs.log.warning("Could not decode file path {0}: {1}".format(
+                        repr(encoded_relative_path), err))
             else:
                 yield relative_path
 

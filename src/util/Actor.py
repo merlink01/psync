@@ -36,12 +36,12 @@ class Actor:
                     try:
                         future.call(lambda: getattr(self, name)(*args, **kargs))
                     except Exception as err:
-                        logging.warning("Ignoring error in {}: {}".format(
+                        logging.warning("Ignoring error in {0}: {1}".format(
                             self.name, err))
         except ActorStopped:
             self.stopped.set()
         except Exception as err:
-            logging.error("Died from error in {}: {}".format(
+            logging.error("Died from error in {0}: {1}".format(
                 self.name, err))
 
 def async(method):

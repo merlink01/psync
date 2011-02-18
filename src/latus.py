@@ -14,6 +14,7 @@ from util import Record
 #*** join main and scan_and_diff into something cleaner
 #*** try memoizing filtering
 #*** add peerid to files.db
+#*** setup logging for FileSystem
 #**** sync two local directories from one .db file
 
 #*** make history.db a class
@@ -26,108 +27,122 @@ from util import Record
 #    scanning the first time (which will take a long time)
 
 def main(fs_root, db_path):
-  clock = Clock()
-  fs = FileSystem()
-  hash_type = hashlib.sha1  # None
-  names_to_ignore = {"Library", ".Trash", "iPod Photo Cache",
-                     ".m2", ".ivy2", ".fontconfig", ".thumbnails",
-                     ".hg", ".git",
-                     ".DS_Store"}
-  # TODO: After an initial history scan, this causes 20% increase in
-  # scan time (for 5 patterns).  The first time, however, it doubles
-  # the scan time.  Of course, the first time, that's dwarfed by the
-  # hash time anyway.  If we really wanted to improve the performance
-  # beyond that, we could try memoizing.
-  patterns_to_ignore = {re.compile(fnmatch.translate(pattern), re.IGNORECASE)
-                        for pattern in 
-                        # "*.mp3", "*.jpg", "*.mp4"
-                        ["*.hds", "*.mem", "*.vob", "*.mp4", "*~"]}
+    clock = Clock()
+    fs = FileSystem()
+    #hash_type = hashlib.sha1  # None
+    hash_type = None
+    names_to_ignore = frozenset([
+            # Mac OSX things we shouldn't sync.
+            "Library", ".Trash", "iPod Photo Cache", ".DS_Store",
+            # Unix things we shouldn't sync
+            ".m2", ".ivy2", ".fontconfig", ".thumbnails",
+            ".abobe", ".dvdcss", ".cache", ".macromedia",
+            ".mozilla", ".java", ".gconf", ".kde", ".nautilus", ".local",
+            ".icons", ".themes",
+            # These are debatable.
+            ".hg", ".git", ".evolution"])
+
+    # TODO: After an initial history scan, this causes 20% increase in
+    # scan time (for 5 patterns).  The first time, however, it doubles
+    # the scan time.  Of course, the first time, that's dwarfed by the
+    # hash time anyway.  If we really wanted to improve the performance
+    # beyond that, we could try memoizing.
+    patterns_to_ignore = frozenset(
+        re.compile(fnmatch.translate(pattern), re.IGNORECASE) for pattern in 
+        # "*.mp3", "*.jpg", "*.mp4"
+        ["*.hds", "*.mem", "*~"])
  
-  with sqlite3.connect(db_path) as db_conn:
-    create_file_history_db(db_conn)
+    with sqlite3.connect(db_path) as db_conn:
+        create_file_history_db(db_conn)
+        
+        history_by_path, run_time = clock.run_time(read_file_history_from_db, db_conn)
+        print ("read history", run_time, len(history_by_path))
 
-    history_by_path = read_file_history_from_db(db_conn)
-    print ("read history", len(history_by_path))
+        def new_history_entries():
+            new_utime = int(clock.now_unix())
+            for (change, path, size, mtime, history) in \
+                    scan_and_diff(fs, fs_root, names_to_ignore, history_by_path):
+                if any(pattern.match(path) for pattern in patterns_to_ignore):
+                    change = "ignored"  #*** make a better name?
 
-    new_utime = int(clock.now_unix())
-    new_history_entries = []  # (path, utime, size, mtime)
-    #  also, should compile regexes ahead of time
-    for (change, path, size, mtime, history) in \
-        scan_and_diff(fs, fs_root, names_to_ignore, history_by_path):
-      if any(pattern.match(path) for pattern in patterns_to_ignore):
-        change = "ignored"  #*** make a better name?
+                # if change != "unchanged":
+                #  print (change, path, size, mtime, history)
+                #if change == "ignored":
+                #  print (change, path, size, mtime, history)
+                # TODO: make an enum?
+                if change == "created" or change == "changed":
+                    # TODO: make a FileSystem that always knows how to do prepend a path?
+                    #print ("hash", path)
+                    #hash = fs.hash(join_paths(fs_root, path), hash_type).encode("hex")
+                    #print ("hashed", path, hash)
+                    hash = ""
+                    yield FileHistoryEntry(path, new_utime, size, mtime, hash)
+                elif change == "deleted":
+                    hash = ""
+                    yield FileHistoryEntry(path, new_utime, size, mtime, hash)
+        new_history_entries, run_time = clock.run_time(lambda: list(new_history_entries()))
+        print ("scanned and diffed and hashed", run_time, len(new_history_entries))
+        
+        # *** tests instability
+        fs.touch(db_path, clock.now_unix())
+        rescan_by_path, run_time = clock.run_time(
+            lambda: dict((path, (size, mtime)) for path, size, mtime in
+                         fs.stats(fs_root, (entry.path for entry in new_history_entries))))
+        print ("rescanned fs", run_time, len(rescan_by_path))
 
-      #if change != "unchanged":
-      #  print (change, path, size, mtime, history)
-      if change == "ignored":
-        print (change, path, size, mtime, history)
-      # TODO: make an enum?
-      if change == "created" or change == "changed":
-        # TODO: make a FileSystem that always knows how to do prepend a path?
-        print ("hash", path)
-        hash = fs.hash(join_paths(fs_root, path), hash_type).encode("hex")
-        print ("hashed", path, hash)
-        new_history_entries.append(
-          FileHistoryEntry(path, new_utime, size, mtime, hash))
-      elif change == "deleted":
-        new_history_entries.append(
-          FileHistoryEntry(path, new_utime, size, mtime, hash))
-        hash = ""
-    print ("scanned fs", len(new_history_entries))
-    
-    # *** tests instability
-    fs.touch(db_path, clock.now_unix())
-    rescan_by_path = {path: (size, mtime) for path, size, mtime in
-                      fs.stats(fs_root,
-                               (entry.path for entry in new_history_entries))}
-    print ("rescanned fs", len(rescan_by_path))
+        def stable_new_history_entries():
+            for entry in new_history_entries:
+                (rescan_size, rescan_mtime) = \
+                    rescan_by_path.get(entry.path, (DELETED_SIZE, DELETED_MTIME))
+                if entry.size == rescan_size and entry.mtime == rescan_mtime:
+                    yield entry
+                else:
+                    print ("unstable", entry.path, \
+                               (entry.size, rescan_size), (entry.mtime, rescan_mtime))
+        stable_new_history_entries = list(stable_new_history_entries())
 
-    def stable_new_history_entries():
-      for entry in new_history_entries:
-        (rescan_size, rescan_mtime) = \
-            rescan_by_path.get(entry.path, (DELETED_SIZE, DELETED_MTIME))
-        if entry.size == rescan_size and entry.mtime == rescan_mtime:
-          yield entry
-        else:
-          print ("unstable", entry.path,
-                 (entry.size, rescan_size), (entry.mtime, rescan_mtime))
-    stable_new_history_entries = list(stable_new_history_entries())
+        _, run_time = clock.run_time(insert_file_history_entries_into_db,
+                                     db_conn, stable_new_history_entries)
+        print ("inserted", run_time, len(stable_new_history_entries))
 
-    insert_file_history_entries_into_db(db_conn, stable_new_history_entries)
-    print ("inserted", len(stable_new_history_entries))
-
-    history_by_path2 = read_file_history_from_db(db_conn)
-    print ("read history2", len(history_by_path2),
-           sum(max(history)[1] for history in history_by_path2.itervalues()))
-      
+        history_by_path2, run_time = clock.run_time(read_file_history_from_db, db_conn)
+        print ("read history2", run_time, len(history_by_path2), \
+                   sum(max(history).size for history in history_by_path2.itervalues()))
+                      
 
 # yields (change, path, size, mtime, history)
 def scan_and_diff(fs, root, names_to_ignore, history_by_path):
-  missing_paths = set(history_by_path.iterkeys())
-  for path, size, mtime in fs.list_stats(root, names_to_ignore):
-    missing_paths.discard(path)
-    # *** do filtering here?
-    # *** use enum for change type?
+    missing_paths = set(history_by_path.iterkeys())
+    for path, size, mtime in fs.list_stats(root, names_to_ignore):
+        missing_paths.discard(path)
+        # *** do filtering here?
+        # *** use enum for change type?
 
-    history = history_by_path.get(path)
-    if history is None:
-      yield ("created", path, size, mtime, history)
-    else:
-      latest = max(history)
-      if size != latest.size or not mtimes_eq(mtime, latest.mtime):
-        yield ("changed", path, size, mtime, history)
-      else:
-        yield ("unchanged", path, size, mtime, history)
+        history = history_by_path.get(path)
+        if history is None:
+            yield ("created", path, size, mtime, history)
+        else:
+            latest = max(history)
+            if size != latest.size or not mtimes_eq(mtime, latest.mtime):
+                yield ("changed", path, size, mtime, history)
+            else:
+                yield ("unchanged", path, size, mtime, history)
 
-  for path in sorted(missing_paths):
-    yield ("deleted", path, DELETED_SIZE, DELETED_MTIME, history)
+    for path in sorted(missing_paths):
+        yield ("deleted", path, DELETED_SIZE, DELETED_MTIME, history)
 
 
 
 
 class Clock:
-  def now_unix(self):
-    return time.time()
+    def now_unix(self):
+        return time.time()
+
+    def run_time(clock, func, *args, **kargs):
+        before = clock.now_unix()
+        result = func(*args, **kargs)
+        after = clock.now_unix()
+        return (result, after-before)
 
 DELETED_SIZE = 0
 DELETED_MTIME = 0
@@ -135,60 +150,60 @@ DELETED_MTIME = 0
 # returns whether mtimes are within 1 sec of each other, because
 # Windows shaves off a bit of mtime info.
 def mtimes_eq(mtime1, mtime2):
-  return abs(mtime1 - mtime2) < 2
+    return abs(mtime1 - mtime2) < 2
 
 # returns bool: created db or not
 def create_file_history_db(db_conn):
-  db_cursor = db_conn.cursor()
-  try:
-    db_cursor.execute(
-      """create table files (path varchar,
-                             utime integer,
-                             size integer,
-                             mtime integer,
-                             hash varchar)""")
-    db_conn.commit()
-    return True
-  except sqlite3.OperationalError:
-    # Already exists?
-    return False
+    db_cursor = db_conn.cursor()
+    try:
+        db_cursor.execute(
+            """create table files (path varchar,
+                                   utime integer,
+                                   size integer,
+                                   mtime integer,
+                                   hash varchar)""")
+        db_conn.commit()
+        return True
+    except sqlite3.OperationalError:
+        # Already exists?
+        return False
 
 class FileHistoryEntry(Record("path", "utime", "size", "mtime", "hash")):
-  pass
+    pass
 
 # returns {path : [entry], with entires UNSORTED
 #
 # Reads 100,000/sec on my 2008 Macbook.  If you sort by utime, it goes
 # down to 40,000/sec, so that doesn't seem like a good idea.
 def read_file_history_from_db(db_conn):
-  history_by_path = {}
+    history_by_path = {}
 
-  db_cursor = db_conn.cursor()
-  for (path, utime, size, mtime, hash) in db_cursor.execute(
-    """select path, utime, size, mtime, hash from files"""):
-    history = history_by_path.get(path)
-    entry = FileHistoryEntry(path, utime, size, mtime, hash)
-    if history is None:
-      history_by_path[path] = [entry]
-    else:
-      history.append(entry)
+    db_cursor = db_conn.cursor()
+    for (path, utime, size, mtime, hash) in db_cursor.execute(
+        """select path, utime, size, mtime, hash from files"""):
+        history = history_by_path.get(path)
+        entry = FileHistoryEntry(path, utime, size, mtime, hash)
+        if history is None:
+            history_by_path[path] = [entry]
+        else:
+            history.append(entry)
 
-  return history_by_path
+    return history_by_path
 
 def insert_file_history_entries_into_db(db_conn, entries):
-  db_cursor = db_conn.cursor()
-  
-  for entry in entries:
-    db_cursor.execute(
-      """insert into files (path, utime, size, mtime, hash)
-         values (?, ?, ?, ?, ?)""", entry)
-  db_conn.commit()
+    db_cursor = db_conn.cursor()
+    
+    for entry in entries:
+        db_cursor.execute(
+            """insert into files (path, utime, size, mtime, hash)
+               values (?, ?, ?, ?, ?)""", entry)
+    db_conn.commit()
 
 if __name__ == "__main__":
-  root = sys.argv[1]
-  db_path = sys.argv[2]
+    root = sys.argv[1]
+    db_path = sys.argv[2]
 
-  main(root, db_path)
+    main(root, db_path)
 
 # class FileScanner(Actor):
 #     def __init__(self, fs):
@@ -209,7 +224,7 @@ if __name__ == "__main__":
 #                    "move_tree", "copy_tree", "delete_tree"]
 #     sync_names = ["exists", "isdir", "isempty", "stat",
 #                   "touch", "move_to_trash"]
-    
+        
 ## possible XMPP:
 # <iq type="get">
 #   <files since=...>
