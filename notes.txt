@@ -1,8 +1,9 @@
 depenecies
-  gevent
-    libevent
-    greenlet
   python 2.6
+  pyinotify: git://github.com/seb-m/pyinotify.git
+  gevent: ???
+    libevent: ???
+    greenlet: ???
 
   
     
