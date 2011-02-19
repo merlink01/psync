@@ -1,11 +1,30 @@
 scanning/history
   next steps
+    run for a long time logging what changes, just out of curiousity
+    *** sync with iriver using it
+      no hashing?
+      must have efficient moves and copies
+
     add peerid, author_peerid, and author_utime to files.db
+    add latest_by_path to FileHistoryStore (makes latus.py easier)
+    add latests_by_hash to FileHistoryStore (needed for move/copy detection)
+
     get a daemon going that just records metadata all of the time
     get a daemon going that reads a second db file every so often,
       copies it, and figures out what is different.
     get an xmpp client that serves requests for metadata
     get an xmpp client that requests metadata and copies it
+
+  unit tests
+    tests/FileSystemTests.py
+    tests/FileHistoryTests.py
+    tests/FileScannerTests.py: uses InMemoryFileSystem, InMemoryHistoryStore
+    tests/UtilTests.py
+    
+  renames?
+    fs/FileHistoryStore.py to fs/history.py
+    fs/FileSystem.py to fs/fs.py
+    fs/FileScanner.py to fs/scan.py
 
   latus.py improvements
     move RunTime(r) out
@@ -13,9 +32,45 @@ scanning/history
     logging passed to FileSystem
     slow down disk IO to not clobber system when hashing a lot
   
+  implement diff_histories(local_entries, remote_entries)
+    if my current (size, mtime, hash) == your current (size, mtime, hash), in sync
+    if my current (author_peerid, author_utime, size, mtime, hash) is in your history, I'm older
+    if your current (author_peerid, author_utime, size, mtime, hash) is in my history, I'm newer
+    otherwise, we're in conflict
+
+    be smart with file hashes to see if it's a
+      no need to fetch:
+        Delete(old, new) if new is deleted (need new for author_peerid/author_utime)
+        Copy(source, old, new) if new.hash in latest_by_hash
+        Move(source, old, new) if new.hash in latest_by_hash and source in deleteds
+      need to fetch      
+        Replace(old, new) otherwise
+        
+            
+
+  implement fetch_chunks(entries)
+    there should be a queue of the diffs
+      * it should be keyed by the path so we aren't doing an "old action"
+      but, it should have a separate queue item for each chunk?
+    uses a "coordinator" and FileChunkSource
+
+  implement merge_entries(entries):
+    touches file or moves file or copies file
+    gets temp file ready, moves current to trash, moves temp in place.
+    * inserts history entry with author_peerid and author_utime
+   
+    failures:
+      if fs has changed, notify scanner
+      if no sources working, ???
+      if fs error moving file in place, LOG and leave chunks around
+
+  implement FileChunkSource:
+    read_chunk(chunkid) -> chunk_data
+    * needs a (hash, size) => current [(path, mtime, size)] lookup
+    
   implement FileChunkStore
     ChunkId(Record("hash", "loc", "size"))
-    stores in db
+    stores in db for restarts
     caches in memory
     get_status(chunkid)
     begin(chunk) -> token (probably time)
@@ -25,6 +80,8 @@ scanning/history
     remove(chunkid)
 
   implement downloading algo
+    could use a priority queue
+
     def begin_fetch_write(chunkid):
       token = chunk_store.begin(chunkid)
       try:
@@ -52,7 +109,11 @@ scanning/history
       else:  # even if in progress
         begin_fetch_write(chunkid)
         
-      
+  only 4 FS threads:
+    1. history: reads + writes db
+    2. scanner: stats + hashes
+    3. merger: writes/copies/moves
+    4. chunk source: reads
 
 overall:
   local fs->metadata working
