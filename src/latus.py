@@ -1,5 +1,9 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
+import sys
+if sys.version_info < (2, 6):
+    raise UnsupportedPythonVersionError(sys.version)
+
 import hashlib
 import logging
 import sqlite3
@@ -79,10 +83,6 @@ def scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type
             diff_file_stats(file_stats, history_entries, path_filter, run_timer))
         print ("changed stats", len(changed_stats))
 
-    # ***: remove
-    fs.touch(db_path, clock.unix())
-    print ("touched", db_path)
-
     with run_timer("hash files"):
         new_history_entries = list(
             hash_file_stats(fs, fs_root, changed_stats, hash_type, clock))
@@ -106,10 +106,19 @@ def scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type
         stable_entries, unstable_entries = partition(new_history_entries, is_stable)
         print ("stable entries", len(stable_entries), len(unstable_entries))
 
-    for unstable_entry in unstable_entries:
-        pass
+    for entry in unstable_entries:
         #*** better logging
-        # print ("unstable", unstable_entry.path)
+        print ("unstable", entry.path)
+
+    # *** remove
+    old_paths = frozenset(entry.path for entry in history_entries)
+    for entry in stable_entries:
+        if entry.mtime == DELETED_MTIME:
+            print ("deleted", entry)
+        elif entry.path not in old_paths:
+            print ("added", entry)
+        else:
+            print ("chagned", entry)
 
     with run_timer("insert new history entries"):
         history_store.add_entries(stable_entries)
@@ -159,7 +168,8 @@ class RunTime:
             return "{0:.2f} secs".format(self.elapsed)
 
 if __name__ == "__main__":
-    import sys
+    import time
+
     fs_root = sys.argv[1]
     db_path = sys.argv[2]
 
@@ -190,6 +200,9 @@ if __name__ == "__main__":
         [# Parallels big files we probably should never sync
          "*.hds", "*.mem",
 
+         # Contents that change a lot, but we wouldn't want to sync
+         ".config/google-chrome/*",
+
          # emacs temp files, which we probably never care to sync
          "*~", "*~$", "~*.tmp"]
  
@@ -198,8 +211,10 @@ if __name__ == "__main__":
     with sqlite3.connect(db_path) as db_conn:
         history_store = FileHistoryStore(db_conn)
 
-        scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type,
-                                history_store, clock, run_timer)
+        while True:
+            scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type,
+                                    history_store, clock, run_timer)
+            time.sleep(180)  # every 3 minutes
         
 
 
