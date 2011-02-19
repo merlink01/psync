@@ -5,6 +5,7 @@ import logging
 import os
 import platform
 import shutil
+import sys
 
 from util import Record
 
@@ -28,16 +29,15 @@ def parent_path(path):
 def PathEncoder():
     is_mac = platform.os.name == "posix" and platform.system() == "Darwin"
     is_windows = platform.os.name in ["nt", "dos"]
-    encoding = None if os.path.supports_unicode_filenames else "UTF-8"
+    decoding = sys.getfilesystemencoding()
+    encoding = None if os.path.supports_unicode_filenames else decoding
 
-    if is_mac:
-        return MacPathEncoder()
-    elif is_windows:
-        return WindowsPathEncoder(encoding)
+    if is_windows:
+        return WindowsPathEncoder(encoding, decoding)
     else:
-        return UnixPathEncoder(encoding)
+        return UnixPathEncoder(encoding, decoding)
 
-class UnixPathEncoder(Record("encoding")):
+class UnixPathEncoder(Record("encoding", "decoding")):
     def encode_path(self, path):
         if self.encoding:
             return path.encode(self.encoding)
@@ -45,26 +45,19 @@ class UnixPathEncoder(Record("encoding")):
             return path
 
     def decode_path(self, path):
-        return path.decode("UTF-8")
+        return path.decode(self.decoding)
 
-class MacPathEncoder:
-    def encode_path(self, path):
-        return path
-
-    def decode_path(self, path):
-        return path.decode("UTF-8")
-
-class WindowsPathEncoder(Record("encoding")):
+class WindowsPathEncoder(Record("encoding", "decoding")):
     def encode_path(self, path):
         win_path = "\\\\?\\" + os.path.abspath(path.replace(PATH_SEP, os.sep))
         if self.encoding:
-            return win_path.encode(encodeding)
+            return win_path.encode(self.encoding)
         else:
             return win_path
 
     def decode_path(self, win_path):
         # TODO: decode to unicode?
-        return win_path.replace(os.sep, PATH_SEP).decode("UTF-8")
+        return win_path.replace(os.sep, PATH_SEP).decode(self.decoding)
 
 class FileSystemTrash(Record("trash_path")):
     def move_to_trash(self, fs, full_path, rel_trashed_path):
