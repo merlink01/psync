@@ -1,6 +1,6 @@
 scanning/history
   next steps
-    add peerid to files.db
+    add peerid, author_peerid, and author_utime to files.db
     get a daemon going that just records metadata all of the time
     get a daemon going that reads a second db file every so often,
       copies it, and figures out what is different.
@@ -11,6 +11,7 @@ scanning/history
     move RunTime(r) out
     logging instead of printing
     logging passed to FileSystem
+    slow down disk IO to not clobber system when hashing a lot
   
   implement FileChunkStore
     ChunkId(Record("hash", "loc", "size"))

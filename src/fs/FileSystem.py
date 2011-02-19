@@ -109,6 +109,10 @@ class FileSystem(Record("path_encoder", "trash", "log")):
         encoded_path = fs.encode_path(path)
         return os.path.isdir(encoded_path)
 
+    def isfile(fs, path):
+        encoded_path = fs.encode_path(path)
+        return os.path.isfile(encoded_path)
+
     def isempty(fs, path):
         encoded_path = fs.encode_path(path)
         for _ in fs.list(encoded_path):

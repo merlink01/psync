@@ -48,8 +48,20 @@ def diff_file_stats(file_stats, history_entries, path_filter, run_timer):
 def hash_file_stats(fs, fs_root, file_stats, hash_type, clock):
     utime = int(clock.unix())
     for path, size, mtime in file_stats:
-        hash = fs.hash(join_paths(fs_root, path), hash_type)
-        yield FileHistoryEntry(path, utime, size, mtime, hash.encode("hex"))
+        full_path = join_paths(fs_root, path)
+
+        if fs.isfile(full_path):
+            try:
+                hash = fs.hash(full_path, hash_type)
+                yield FileHistoryEntry(path, utime, size, mtime, hash.encode("hex"))
+            except IOError:
+                pass
+                # *** better logging
+                # print ("ignoring because could not hash", path)
+        else:
+            pass
+            # *** better logging
+            # print ("ignoring because it's not a file", path)
 
 # ***: better logging here
 def scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type,
@@ -155,8 +167,9 @@ if __name__ == "__main__":
     run_timer = RunTimer(clock)
     fs = FileSystem()
 
-    # hash_type = hashlib.sha1  # None
+    # hash_type = hashlib.sha1
     hash_type = None
+
     names_to_ignore = frozenset([
             # Mac OSX things we shouldn't sync, mostly caches and trashes
             "Library", ".Trash", "iPod Photo Cache", ".DS_Store",
