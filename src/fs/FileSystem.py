@@ -19,6 +19,11 @@ PATH_SEP = "/"
 def join_paths(*paths):
     return PATH_SEP.join(paths)
 
+# returns whether mtimes are within 1 sec of each other, because
+# Windows shaves off a bit of mtime info.
+def mtimes_eq(mtime1, mtime2):
+    return abs(mtime1 - mtime2) < 2
+
 def parent_path(path):
     try:
         parent, child = path.rsplit(PATH_SEP, 1)
@@ -124,12 +129,12 @@ class FileSystem(Record("path_encoder", "trash", "log")):
     #
     # On my faster linux desktop machine, it's about 30,000 files/sec
     # when cached, even for 200,00 files, which is a big improvement.
-    def list_stats(fs, root, names_to_ignore = {}):
+    def list_stats(fs, root, names_to_ignore = frozenset()):
         return fs.stats(root,
                         fs.list(root, names_to_ignore = names_to_ignore))
 
     # yields a path for each file found relative to the root
-    def list(fs, root, names_to_ignore = {}):
+    def list(fs, root, names_to_ignore = frozenset()):
         listdir = os.listdir
         join = os.path.join
         isdir = os.path.isdir
