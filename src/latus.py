@@ -7,8 +7,46 @@ if sys.version_info < (2, 6):
 import hashlib
 import sqlite3
 
-from fs import FileSystem, PathFilter, FileHistoryStore, FileScanner
+from fs import FileSystem, PathFilter, FileHistoryStore, FileScanner, latest_history_entry
 from util import Record, Clock, RunTimer
+
+def diff_histories(entries1, entries2):
+    # *** filter entries2?
+    history_by_path1 = group_history_by_path(entries1)
+    history_by_path2 = group_history_by_path(entries2)
+
+    for path1, history1 in history_by_path1.itervalues():
+        history2 = history_by_path2.get(path1)
+        if history2 is None:
+            pass  # 1 is new
+        else:
+            latest1 = latest_history_entry(history1)
+            latest2 = latest_history_entry(history1)
+            if entries_match(latest1, latest2):
+                pass  # in sync
+            elif history_has_matching_entry(history1, latest2):
+                pass  # 1 is newer
+            elif history_has_matching_entry(history2, latest1):
+                pass  # 2 is newer
+            else:
+                pass  # in conflict
+
+    for path2, history2 in history_by_path2.itervalues():
+        history1 = history_by_path1.get(path2)
+        if history1 is None:
+            pass  # 2 is new
+
+def group_history_by_path(history_entries):
+    return groupby(history_entries, FileHistoryEntry.get_path)
+
+def entries_match(entry1, entry2):
+    return (entry1.size  == entry2.size and
+            entry1.mtime == entry2.mtime and
+            entry1.hash  == entry2.hash)
+        
+def history_has_matching_entry(history, entry):
+    return any(entries_match(entry, entry2) for entry2 in history)
+
 
 if __name__ == "__main__":
     import time

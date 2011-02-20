@@ -1,6 +1,5 @@
 scanning/history
   next steps
-    run for a long time logging what changes, just out of curiousity
     *** sync with iriver using it
       no hashing?
       must have efficient moves and copies
@@ -8,6 +7,18 @@ scanning/history
     add peerid, author_peerid, and author_utime to files.db
     add latest_by_path to FileHistoryStore (makes latus.py easier)
     add latests_by_hash to FileHistoryStore (needed for move/copy detection)
+    make FileWatcher
+      pyinotify
+        make it faster
+          no auto_add
+          no rec
+          add after scanning, every time :)
+            scan only directories, not files
+      osx
+        make it cover directories
+        and maybe later, smart files
+      win32
+        make it work again
 
     get a daemon going that just records metadata all of the time
     get a daemon going that reads a second db file every so often,
