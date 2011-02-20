@@ -118,7 +118,7 @@ def scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type
         elif entry.path not in old_paths:
             print ("added", entry)
         else:
-            print ("chagned", entry)
+            print ("changed", entry)
 
     with run_timer("insert new history entries"):
         history_store.add_entries(stable_entries)
@@ -186,8 +186,8 @@ if __name__ == "__main__":
 
             # Unix things we shouldn't sync, mostly caches and trashes
             ".m2", ".ivy2", ".fontconfig", ".thumbnails", "thumbs.db",
-            ".abobe", ".dvdcss", ".cache", ".macromedia",
-            ".mozilla", ".java", ".gconf", ".kde", ".nautilus", ".local",
+            ".abobe", ".dvdcss", ".cache", ".macromedia", ".xsession-errors",
+            ".mozilla", ".java", ".gconf", ".gconfd", ".kde", ".nautilus", ".local",
             ".icons", ".themes",
 
             # These are debatable.
@@ -201,7 +201,7 @@ if __name__ == "__main__":
          "*.hds", "*.mem",
 
          # Contents that change a lot, but we wouldn't want to sync
-         ".config/google-chrome/*",
+         ".config/google-chrome/*", ".config/google-googletalkplugin/*",
 
          # emacs temp files, which we probably never care to sync
          "*~", "*~$", "~*.tmp"]
