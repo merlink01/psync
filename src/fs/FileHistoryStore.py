@@ -7,8 +7,16 @@ from util import Record, sql, into, setdefault
 TABLE_NAME = "files"
 TABLE_FIELDS = ["path", "utime", "size", "mtime", "hash"]
 
-class FileHistoryEntry(Record("path", "utime", "size", "mtime", "hash")):
+## By putting utime first, we can shave .2-.3 seconds per 150,000
+## entries when using latest_history_entry.
+class FileHistoryEntry(Record("utime", "path", "size", "mtime", "hash")):
     pass
+
+
+## This is faster by .2 secs for 150,000 entries.
+latest_history_entry = max
+# def latest_history_entry(history):
+#     return max(history, key = FileHistoryEntry.get_utime)
 
 class FileHistoryStore(Record("db_conn", "entries_by_peerid")):
     def __new__(cls, db_conn):
@@ -46,7 +54,7 @@ def select_entries(db_conn):
     db_cursor = db_conn.cursor()
     for (path, utime, size, mtime, hash) in \
             db_cursor.execute(sql.select(TABLE_NAME, TABLE_FIELDS)):
-        yield FileHistoryEntry(path, utime, size, mtime, hash)
+        yield FileHistoryEntry(utime, path, size, mtime, hash)
 
 def insert_entries(db_conn, entries):
     db_cursor = db_conn.cursor()

@@ -1,6 +1,6 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
-from fs import FileHistoryEntry, join_paths, mtimes_eq
+from fs import FileHistoryEntry, join_paths, mtimes_eq, latest_history_entry
 from util import Record, groupby, partition
 
 DELETED_SIZE = 0
@@ -70,8 +70,9 @@ def scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type
 
     with run_timer("reread history"):
         history_entries = history_store.read_entries()
-        history_by_path = groupby(history_entries, FileHistoryEntry.get_path)
-        total_size = sum(max(history).size for history in history_by_path.itervalues())
+        history_by_path = group_history_by_path(history_entries)
+        total_size = sum(latest_history_entry(history).size for history in
+                         history_by_path.itervalues())
         print ("new history", len(history_entries), len(history_by_path), total_size)
 
 # yields (path, size, mtime) if the path is new
@@ -79,12 +80,12 @@ def scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type
 #        (path, DELETED_SIZE, DELETED_MTIME) if the path is missing
 def diff_file_stats(file_stats, history_entries, path_filter, run_timer):
     with run_timer("group history by path"):
-        history_by_path = groupby(history_entries, FileHistoryEntry.get_path)
+        history_by_path = group_history_by_path(history_entries)
 
     with run_timer("compare to latest history"):
         for path, size, mtime in file_stats:
             history = history_by_path.get(path)
-            last = None if history is None else max(history)
+            last = None if history is None else latest_history_entry(history)
             if last is not None and last.size == size and mtimes_eq(last.mtime, mtime):
                 # unchanged
                 pass  
@@ -119,7 +120,7 @@ def hash_file_stats(fs, fs_root, file_stats, hash_type, clock):
         if fs.isfile(full_path):
             try:
                 hash = fs.hash(full_path, hash_type)
-                yield FileHistoryEntry(path, utime, size, mtime, hash.encode("hex"))
+                yield FileHistoryEntry(utime, path, size, mtime, hash.encode("hex"))
             except IOError:
                 pass
                 # *** better logging
@@ -131,4 +132,7 @@ def hash_file_stats(fs, fs_root, file_stats, hash_type, clock):
 
 def group_stats_by_path(file_stats):
     return dict((path, (size, mtime)) for path, size, mtime in file_stats)
+
+def group_history_by_path(history_entries):
+    return groupby(history_entries, FileHistoryEntry.get_path)
 
