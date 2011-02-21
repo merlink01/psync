@@ -42,7 +42,9 @@ def group_history_by_path(history_entries):
 def entries_match(entry1, entry2):
     return (entry1.size  == entry2.size and
             entry1.mtime == entry2.mtime and
-            entry1.hash  == entry2.hash)
+            entry1.hash  == entry2.hash and
+            entry1.author_peerid = entry2.author_peerid and
+            entry1.author_utime = entry2.author_utime)
         
 def history_has_matching_entry(history, entry):
     return any(entries_match(entry, entry2) for entry2 in history)
