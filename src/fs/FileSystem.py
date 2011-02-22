@@ -61,7 +61,6 @@ class WindowsPathEncoder(Record("encoding", "decoding")):
             return win_path
 
     def decode_path(self, win_path):
-        # TODO: decode to unicode?
         return win_path.replace(os.sep, PATH_SEP).decode(self.decoding)
 
 class FileSystemTrash(Record("trash_path")):
