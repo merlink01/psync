@@ -33,6 +33,7 @@ latest_history_entry = max
 # def latest_history_entry(history):
 #     return max(history, key = FileHistoryEntry.get_utime)
 
+# *** Oy.. should we simplify this one AGAIN?
 class FileHistoryStore(Record("db", "cache_by_peerid")):
     def __new__(cls, db):
         db.create(TABLE_NAME, TABLE_FIELD_TYPES)
@@ -54,19 +55,21 @@ class FileHistoryStore(Record("db", "cache_by_peerid")):
 
     #*** use peerid
     def add_entries(self, new_entries, peerid = ""):
+        # *** Logging
+        # print ("insert", new_entries)
         self.db.insert(TABLE_NAME, TABLE_FIELDS, new_entries)
         cache = self.cache_by_peerid.get(peerid)
         if cache is not None:
             cache.add_entries(new_entries)
 
-    # return [latest]
-    #*** use peerid
-    def read_latests_by_hashes(self, hashes, peerid = ""):
-        cached = self.cache_by_peerid.get(peerid)
-        if cached is not None:
-            for path, latest in cached.latest_by_path:
-                if latest.hash in hashes:
-                    yield latest
+    # # return [latest]
+    # #*** use peerid
+    # def read_latests_by_hashes(self, hashes, peerid = ""):
+    #     cached = self.cache_by_peerid.get(peerid)
+    #     if cached is not None:
+    #         for path, latest in cached.latest_by_path:
+    #             if latest.hash in hashes:
+    #                 yield latest
 
 class HistoryCache(Record("entries", "history_by_path", "latest_by_path")):
     @classmethod
