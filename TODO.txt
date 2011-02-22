@@ -1,5 +1,10 @@
 scanning/history
   next steps
+    **** get photos to Cess
+      add author_peerid and author_utime to history
+      make latus.py update two directories and diff them
+      write diff_histories
+      write     
     *** sync with iriver using it
       no hashing?
       must have efficient moves and copies

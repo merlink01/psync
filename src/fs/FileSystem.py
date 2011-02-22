@@ -218,7 +218,7 @@ class FileSystem(Record("path_encoder", "trash", "log")):
     def write(fs, path, contents, start = None, mtime = None):
         encoded_path = fs.encode_path(path)
 
-        fs.create_dir(parent_path(path))
+        fs.create_parent_dirs(path)
         if (start is not None) and fs.exists(encoded_path):
             mode = fs.EXISTING_WRITE_MODE
         else:
@@ -238,6 +238,9 @@ class FileSystem(Record("path_encoder", "trash", "log")):
     def touch(fs, path, mtime):
         encoded_path = fs.encode_path(path)
         os.utime(encoded_path, (mtime, mtime))
+
+    def create_parent_dirs(fs, path):
+        fs.create_dir(parent_path(path))
 
     def create_dir(fs, path):
         encoded_path = fs.encode_path(path)

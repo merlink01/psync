@@ -7,14 +7,15 @@ DELETED_SIZE = 0
 DELETED_MTIME = 0
 
 class FileScanner(Record("fs", "clock", "run_timer")):
-    def scan_and_update_history(self, fs_root, path_filter, hash_type, history_store):
+    def scan_and_update_history(self, fs_root, path_filter, hash_type,
+                                history_store, peerid):
         scan_and_update_history(
             self.fs, fs_root,
             path_filter.names_to_ignore, path_filter, hash_type,
-            history_store, self.clock, self.run_timer)
+            history_store, peerid, self.clock, self.run_timer)
 
 def scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type,
-                            history_store, clock, run_timer):
+                            history_store, peerid, clock, run_timer):
     with run_timer("read history"):
         history_entries = history_store.read_entries()
         print ("history entries", len(history_entries))
@@ -30,7 +31,8 @@ def scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type
 
     with run_timer("hash files"):
         new_history_entries = list(
-            hash_file_stats(fs, fs_root, changed_stats, hash_type, clock))
+            hash_file_stats(fs, fs_root, changed_stats, hash_type,
+                            peerid, clock))
         print ("new history entries", len(new_history_entries))
 
     with run_timer("rescan files"):
@@ -112,7 +114,7 @@ def diff_file_stats(file_stats, history_entries, path_filter, run_timer):
                 yield path, DELETED_SIZE, DELETED_MTIME
 
 # yields new FileHistoryEntry
-def hash_file_stats(fs, fs_root, file_stats, hash_type, clock):
+def hash_file_stats(fs, fs_root, file_stats, hash_type, peerid, clock):
     utime = int(clock.unix())
     for path, size, mtime in file_stats:
         full_path = join_paths(fs_root, path)
@@ -120,7 +122,11 @@ def hash_file_stats(fs, fs_root, file_stats, hash_type, clock):
         if fs.isfile(full_path):
             try:
                 hash = fs.hash(full_path, hash_type)
-                yield FileHistoryEntry(utime, path, size, mtime, hash.encode("hex"))
+                author_peerid = peerid
+                author_utime = utime
+                yield FileHistoryEntry(
+                    utime, peerid, path, size, mtime, hash.encode("hex"),
+                    author_peerid, author_utime)
             except IOError:
                 pass
                 # *** better logging

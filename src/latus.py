@@ -7,8 +7,9 @@ if sys.version_info < (2, 6):
 import hashlib
 import sqlite3
 
-from fs import FileSystem, PathFilter, FileHistoryStore, FileScanner, latest_history_entry
-from util import Record, Clock, RunTimer
+from fs import (FileSystem, PathFilter, FileHistoryStore, FileScanner,
+                latest_history_entry)
+from util import Record, Clock, RunTimer, SqlDb
 
 def diff_histories(entries1, entries2):
     # *** filter entries2?
@@ -43,8 +44,8 @@ def entries_match(entry1, entry2):
     return (entry1.size  == entry2.size and
             entry1.mtime == entry2.mtime and
             entry1.hash  == entry2.hash and
-            entry1.author_peerid = entry2.author_peerid and
-            entry1.author_utime = entry2.author_utime)
+            entry1.author_peerid == entry2.author_peerid and
+            entry1.author_utime == entry2.author_utime)
         
 def history_has_matching_entry(history, entry):
     return any(entries_match(entry, entry2) for entry2 in history)
@@ -52,9 +53,14 @@ def history_has_matching_entry(history, entry):
 
 if __name__ == "__main__":
     import time
+    import os
 
     fs_root = sys.argv[1]
-    db_path = sys.argv[2]
+    peerid = sys.argv[2]
+    #fs_root2 = sys.argv[1]
+    #peerid2 = sys.argv[2]
+    db_path = os.path.join(fs_root, ".latus/db")
+
 
     def log_run_time(rt):
         print ("timed", rt.name, "{0:.2f} secs".format(rt.elapsed))
@@ -95,12 +101,15 @@ if __name__ == "__main__":
  
     path_filter = PathFilter(globs_to_ignore, names_to_ignore)   
 
+    fs.create_parent_dirs(db_path)
     with sqlite3.connect(db_path) as db_conn:
-        history_store = FileHistoryStore(db_conn)
+        db = SqlDb(db_conn)
+        history_store = FileHistoryStore(db)
 
-        while True:
-            scanner.scan_and_update_history(fs_root, path_filter, hash_type, history_store)
-            time.sleep(180)  # every 3 minutes
+        scanner.scan_and_update_history(
+            fs_root, path_filter, hash_type, history_store, peerid)
+        #scanner.scan_and_update_history(
+        #    fs_root2, path_filter, hash_type, history_store, peerid2)
         
 
 
