@@ -9,6 +9,18 @@ import sys
 
 from util import Record
 
+DELETED_SIZE = 0
+DELETED_MTIME = 0
+
+class FileStat(Record("path", "size", "mtime")):
+    @classmethod
+    def from_deleted(cls, path):
+        return cls.new(path, DELETED_SIZE, DELETED_MTIME)
+
+    @property
+    def deleted(entry):
+        return entry.mtime == DELETED_MTIME
+
 STAT_SIZE_INDEX  = 6
 STAT_MTIME_INDEX = 8
  
@@ -163,7 +175,7 @@ class FileSystem(Record("path_encoder", "trash", "log")):
             else:
                 yield relative_path
 
-    # yields (path, size, mtime) relative to root for each path in paths
+    # yields FileStat relative to root for each path in paths
     def stats(fs, root, paths):
         stat = os.stat
         for path in paths:
@@ -172,7 +184,7 @@ class FileSystem(Record("path_encoder", "trash", "log")):
                 stats = stat(encoded_path)
                 size = stats[STAT_SIZE_INDEX]
                 mtime = stats[STAT_MTIME_INDEX]
-                yield path, size, mtime
+                yield FileStat(path, size, mtime)
             except OSError:
                 pass  # Probably a link
 

@@ -2,10 +2,8 @@
 
 import operator
 
+from fs import DELETED_SIZE, DELETED_MTIME
 from util import Record, sql, setdefault, groupby_set
-
-DELETED_SIZE = 0
-DELETED_MTIME = 0
 
 TABLE_NAME = "files"
 TABLE_FIELD_TYPES = ["utime integer",

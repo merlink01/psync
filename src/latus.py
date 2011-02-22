@@ -224,7 +224,7 @@ if __name__ == "__main__":
             print (action, entry)
             source_path = join_paths(fs_root, entry.path)
             dest_path = join_paths(fs_root2, entry.path)
-            if action == MergeAction.meta_update:
+            if action == MergeAction.history_update:
                 print ("history-merging {0}".format(dest_path))
                 history_store.add_entries(
                     [entry.alter(utime=clock.unix(), peerid=peerid2)])
