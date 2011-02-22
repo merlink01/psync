@@ -16,11 +16,18 @@ class Clock:
     def unix(_):
         return time.time()
 
-def groupby(vals, key = None):
+def groupby_list(vals, key = None):
     group_by_key = {}
     for val in vals:
         group = group_by_key.setdefault(key(val), [])
         group.append(val)
+    return group_by_key
+
+def groupby_set(vals, key = None):
+    group_by_key = {}
+    for val in vals:
+        group = group_by_key.setdefault(key(val), set())
+        group.add(val)
     return group_by_key
 
 # like dct.setdefault(key, get_val(*args, **kargs)), except lazy

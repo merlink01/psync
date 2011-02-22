@@ -1,8 +1,9 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
-from fs import (FileHistoryEntry, join_paths, mtimes_eq, latest_history_entry,
+from fs import (FileHistoryEntry, group_history_by_path,
+                join_paths, mtimes_eq, latest_history_entry,
                 DELETED_SIZE, DELETED_MTIME)
-from util import Record, groupby, partition
+from util import Record, partition
 
 class FileScanner(Record("fs", "clock", "run_timer")):
     def scan_and_update_history(self, fs_root, path_filter, hash_type,
@@ -14,80 +15,79 @@ class FileScanner(Record("fs", "clock", "run_timer")):
 
 def scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type,
                             history_store, peerid, clock, run_timer):
-    with run_timer("read history"):
+    with run_timer("read history") as rt:
         history_entries = history_store.read_entries()
-        print ("history entries", len(history_entries))
+        rt.set_result({"history entries": len(history_entries)})
 
-    with run_timer("scan files"):
+    with run_timer("scan files") as rt:
         file_stats = list(fs.list_stats(fs_root, names_to_ignore))
-        print ("file stats", len(file_stats))
+        rt.set_result({"file stats": len(file_stats)})
 
-    with run_timer("diff file stats"):
+    with run_timer("diff file stats") as rt:
         changed_stats = list(
             diff_file_stats(file_stats, history_entries, path_filter, run_timer))
-        print ("changed stats", len(changed_stats))
+        rt.set_result({"changed stats": len(changed_stats)})
 
-    with run_timer("hash files"):
+    with run_timer("hash files") as rt:
+        # **** Add add|changed|deleted to new entries
+        # if entry.deleted:
+        #     print ("deleted", entry)
+        # elif entry.path not in history_by_path:
+        #     print ("added", entry)
+        # else:
+        #     print ("changed", entry)
         new_history_entries = list(
             hash_file_stats(fs, fs_root, changed_stats, hash_type,
                             peerid, clock))
-        print ("new history entries", len(new_history_entries))
+        rt.set_result({"new history entries": len(new_history_entries)})
 
-    with run_timer("rescan files"):
+    with run_timer("rescan files") as rt:
         rescan_stats = list(fs.stats(fs_root, (path for path, size, mtime in changed_stats)))
-        print ("rescanned file stats", len(rescan_stats))
+        rt.set_result({"rescanned file stats": len(rescan_stats)})
 
     with run_timer("group rescanned stats"):
         rescan_stats_by_path = group_stats_by_path(rescan_stats)
 
-    with run_timer("check change stability"):
+    with run_timer("check change stability") as rt:
         def is_stable(entry):
             (rescan_size, rescan_mtime) = \
                 rescan_stats_by_path.get(entry.path,
                                          (DELETED_SIZE, DELETED_MTIME))
-            #print ("size vs", entry.size, rescan_size)
-            #print ("mtime vs", entry.mtime, rescan_mtime)
             return entry.size == rescan_size and entry.mtime == rescan_mtime
 
-        stable_entries, unstable_entries = partition(new_history_entries, is_stable)
-        print ("stable entries", len(stable_entries), len(unstable_entries))
-
-    for entry in unstable_entries:
-        #*** better logging
-        print ("unstable", entry.path)
-
-    # *** remove
-    old_paths = frozenset(entry.path for entry in history_entries)
-    for entry in stable_entries:
-        if entry.deleted:
-            print ("deleted", entry)
-        elif entry.path not in old_paths:
-            print ("added", entry)
-        else:
-            print ("changed", entry)
+        stable_entries, unstable_entries = \
+                        partition(new_history_entries, is_stable)
+        rt.set_result({"stable entries": len(stable_entries),
+                       "unstable entries": len(unstable_entries)})
 
     with run_timer("insert new history entries"):
         history_store.add_entries(stable_entries)
 
-    with run_timer("reread history"):
+    with run_timer("reread history") as rt:
         history_entries = history_store.read_entries()
         history_by_path = group_history_by_path(history_entries)
         total_size = sum(latest_history_entry(history).size for history in
                          history_by_path.itervalues())
-        print ("new history", len(history_entries), len(history_by_path), total_size)
+        rt.set_result({"path count": len(history_by_path),
+                       "total size": total_size})
 
 # yields (path, size, mtime) if the path is new
 #        (path, size, mtime) if the size or mtime have changed
 #        (path, DELETED_SIZE, DELETED_MTIME) if the path is missing
 def diff_file_stats(file_stats, history_entries, path_filter, run_timer):
-    with run_timer("group history by path"):
+    with run_timer("group history by path") as rt:
         history_by_path = group_history_by_path(history_entries)
+        rt.set_result({"path count": len(history_by_path)})
+        
 
     with run_timer("compare to latest history"):
+        #**** use enum to avoid filter in two places
         for path, size, mtime in file_stats:
             history = history_by_path.get(path)
-            last = None if history is None else latest_history_entry(history)
-            if last is not None and last.size == size and mtimes_eq(last.mtime, mtime):
+            latest = None if history is None else latest_history_entry(history)
+            if latest is not None \
+                   and latest.size == size \
+                   and mtimes_eq(latest.mtime, mtime):
                 # unchanged
                 pass  
             elif path_filter.ignore_path(path):
@@ -138,6 +138,4 @@ def hash_file_stats(fs, fs_root, file_stats, hash_type, peerid, clock):
 def group_stats_by_path(file_stats):
     return dict((path, (size, mtime)) for path, size, mtime in file_stats)
 
-def group_history_by_path(history_entries):
-    return groupby(history_entries, FileHistoryEntry.get_path)
 

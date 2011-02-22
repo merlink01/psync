@@ -7,38 +7,59 @@ if sys.version_info < (2, 6):
 import hashlib
 import sqlite3
 
-from fs import (FileSystem, PathFilter, FileHistoryStore, FileScanner,
-                latest_history_entry)
+from fs import (FileSystem, PathFilter, FileHistoryStore, FileHistoryEntry,
+                FileScanner, latest_history_entry, group_history_by_path)
 from util import Record, Clock, RunTimer, SqlDb
+                  
+# *** use enum for newer, older, insync, etc
+def merge_histories(entries1, entries2):
+    for path, diff, latest1, latest2 in diff_histories(entries1, entries2):
+        if diff == "newer":
+            if (latest2 is not None
+                and latest2.size == latest1.size
+                and latest2.hash == latest1.hash):
+                print ("touch", path, latest2.mtime)
+            if latest1.hash in ():  # FILE_SYSTEM_SOMEWHERE:
+                if source_path in DELETEDS:
+                    print ("move", path, "from", source_path)
+                else:
+                    print ("copy", path, "from", source_path)
+            elif latest1.hash in ():  # TRASH_SOMEWHERE:
+                print ("undelete", path, "from", source_path)
+            elif latest1.deleted:
+                print ("delete", path)
+            elif latest2 is None:
+                print ("fetch and create", path)
+        elif diff == "inconflict":
+            print (diff, path)  # *** fetch but don't merge
+        else:
+            print (diff, path)
 
 def diff_histories(entries1, entries2):
-    # *** filter entries2?
     history_by_path1 = group_history_by_path(entries1)
     history_by_path2 = group_history_by_path(entries2)
 
-    for path1, history1 in history_by_path1.itervalues():
+    for path1, history1 in history_by_path1.iteritems():
         history2 = history_by_path2.get(path1)
-        if history2 is None:
-            pass  # 1 is new
+        latest1 = latest_history_entry(history1)
+        latest2 = None if history2 is None else latest_history_entry(history2)
+        if latest2 is None:
+            diff = "newer"
+        elif entries_match(latest1, latest2):
+            diff = "insync"
+        elif has_matching_entry(history1, latest2):
+            diff = "newer"
+        elif has_matching_entry(history2, latest1):
+            diff = "older"
         else:
-            latest1 = latest_history_entry(history1)
-            latest2 = latest_history_entry(history1)
-            if entries_match(latest1, latest2):
-                pass  # in sync
-            elif history_has_matching_entry(history1, latest2):
-                pass  # 1 is newer
-            elif history_has_matching_entry(history2, latest1):
-                pass  # 2 is newer
-            else:
-                pass  # in conflict
+            diff = "conflict"
 
-    for path2, history2 in history_by_path2.itervalues():
+        yield (path1, diff, latest1, latest2)
+
+    for path2, history2 in history_by_path2.iteritems():
         history1 = history_by_path1.get(path2)
         if history1 is None:
-            pass  # 2 is new
-
-def group_history_by_path(history_entries):
-    return groupby(history_entries, FileHistoryEntry.get_path)
+            yield (path1, "older", None, latest_history_entry(history2))
 
 def entries_match(entry1, entry2):
     return (entry1.size  == entry2.size and
@@ -47,7 +68,7 @@ def entries_match(entry1, entry2):
             entry1.author_peerid == entry2.author_peerid and
             entry1.author_utime == entry2.author_utime)
         
-def history_has_matching_entry(history, entry):
+def has_matching_entry(history, entry):
     return any(entries_match(entry, entry2) for entry2 in history)
 
 
@@ -57,13 +78,15 @@ if __name__ == "__main__":
 
     fs_root = sys.argv[1]
     peerid = sys.argv[2]
-    #fs_root2 = sys.argv[1]
-    #peerid2 = sys.argv[2]
     db_path = os.path.join(fs_root, ".latus/db")
+
+    fs_root2 = sys.argv[3]
+    peerid2 = sys.argv[4]
+    db_path2 = os.path.join(fs_root2, ".latus/db")
 
 
     def log_run_time(rt):
-        print ("timed", rt.name, "{0:.2f} secs".format(rt.elapsed))
+        print ("timed", "{0:.2f} secs".format(rt.elapsed), rt.name, rt.result)
 
     fs = FileSystem()
     clock = Clock()
@@ -74,17 +97,20 @@ if __name__ == "__main__":
     hash_type = None
 
     names_to_ignore = frozenset([
-            # Mac OSX things we shouldn't sync, mostly caches and trashes
-            "Library", ".Trash", "iPod Photo Cache", ".DS_Store",
+        # don't scan our selves!
+        ".latus",
 
-            # Unix things we shouldn't sync, mostly caches and trashes
-            ".m2", ".ivy2", ".fontconfig", ".thumbnails", "thumbs.db",
-            ".abobe", ".dvdcss", ".cache", ".macromedia", ".xsession-errors",
-            ".mozilla", ".java", ".gconf", ".gconfd", ".kde", ".nautilus", ".local",
-            ".icons", ".themes",
+        # Mac OSX things we shouldn't sync, mostly caches and trashes
+        "Library", ".Trash", "iPod Photo Cache", ".DS_Store",
 
-            # These are debatable.
-            ".hg", ".git", ".evolution"])
+        # Unix things we shouldn't sync, mostly caches and trashes
+        ".m2", ".ivy2", ".fontconfig", ".thumbnails", "thumbs.db",
+        ".abobe", ".dvdcss", ".cache", ".macromedia", ".xsession-errors",
+        ".mozilla", ".java", ".gconf", ".gconfd", ".kde", ".nautilus", ".local",
+        ".icons", ".themes",
+
+        # These are debatable.
+        ".hg", ".git", ".evolution"])
 
     # For 5 patterns, the initial scan time is doubled.  But, that
     # time is dwarfed by the hash time anyway.  The path filter can
@@ -108,9 +134,19 @@ if __name__ == "__main__":
 
         scanner.scan_and_update_history(
             fs_root, path_filter, hash_type, history_store, peerid)
-        #scanner.scan_and_update_history(
-        #    fs_root2, path_filter, hash_type, history_store, peerid2)
-        
+        history_entries1 = history_store.read_entries()
+
+    fs.create_parent_dirs(db_path2)
+    with sqlite3.connect(db_path2) as db_conn:
+        db = SqlDb(db_conn)
+        history_store = FileHistoryStore(db)
+
+        scanner.scan_and_update_history(
+            fs_root2, path_filter, hash_type, history_store, peerid2)
+        history_entries2 = history_store.read_entries()
+
+    # *** filter entries2?
+    merge_histories(history_entries1, history_entries2)
 
 
 # class FileScanner(Actor):

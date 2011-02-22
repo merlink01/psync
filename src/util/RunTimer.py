@@ -15,9 +15,14 @@ class RunTime:
         self.logger = logger
         self.before = None
         self.after  = None
+        self.result = None
 
     def __enter__(self):
         self.before = self.clock.unix()
+        return self
+
+    def set_result(self, result):
+        self.result = result
 
     def __exit__(self, *args):
         self.after = self.clock.unix()

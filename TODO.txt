@@ -1,4 +1,72 @@
 scanning/history
+  from notes
+    use enum in diff_file_stats to avoid ignore_path in two places
+    *** add action=created|deleted|changed to FileHistoryEntry
+    put trash and conflicting versions in the same place
+      that means just put conflicting files in trash?
+      also put prepared version in trash?
+      make the trash a ChunkSource?
+      is it a content-addressable-store where things can disappear?
+        but should we bother data de-dupping
+      for "revisions", you could just copy even before it's deleted locally
+      pros:
+        easy for user to see/delete/cleanup
+	pretty simple
+	covers trash, revisions, and conflicts
+	keeps us safe from remote deletes
+	keeps us safe from remote changes
+    log tables
+      runtimes: (action, start, duration, result)
+      fetchqueue: (peerid, groupid, path, size, mtime, hash, utime)
+        (just in memory?)
+      fetchedchunks: hash, loc, size, utime
+      mergelog: (action=copy|moveto|movefrom|delete|create|replace,
+                 path, old_mtime, old_size, old_hash,
+		       new_mtime, new_size, new_hash,
+		       author_peerid, author_utime, other_path)
+    main tables
+      files
+      filechunks?
+    log files
+      untsable files
+      ignored files (but not every time!)
+      non-files (but not every time!)
+    watchers
+      need coalesing, at least a little?
+        to capture deleted+created=move
+	to avoid performance issues when someone is writing to a file that's unstable?
+    for status
+      sources
+	files metadata from local and remote
+	mergelog from local and remote
+	fetchqueue from local and remote
+	fetchedchunks from local and remote (maybe)
+	some way of knowing speed, possibly as return result of fetchqueue
+	  calculated by how fast we transfer files, recorded by fetchers
+      show:
+        1. number of files + total size
+	2. last N merge operations
+	3. "synced" or "downloading N files M size ETA XYZ"
+	  with list of files?
+	  ETA = size / speed
+      for now, update by constantly writing to a stauts file
+        
+    inotify:
+      evey scan, get scanned dirs, and add a watch for each one
+	keep track of previously added ones
+	dont' auto-add or rec
+      when a file changes, trigger a scan, and be sure to ignore correctly
+      for OSX, just do directories, but maybe calcualte "important" files to watch
+	(priority by modtime?)
+
+    big stuff left to figure out
+      1. groups: how to separate them
+      2. permissions: control how sees what, and who we merge from
+      3. p2p networking and discovery
+      4. status and logging
+      5. UI
+      6. file watching
+
   next steps
     **** get photos to Cess
       add author_peerid and author_utime to history
