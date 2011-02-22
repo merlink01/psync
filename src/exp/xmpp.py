@@ -13,7 +13,7 @@ args = parser.parse_args()
 
 
 jid = "pthatcher@gmail.com/02044160"
-# *** hack
+# hack for typing password
 password = "".join(chr(ord(c)+1) for c in args.password)
 client = sleekxmpp.ClientXMPP(jid, password)
 # Interesting plugins:

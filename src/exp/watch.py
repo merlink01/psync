@@ -1,6 +1,6 @@
 from thirdparty import pyinotify
 
-# *** Wow.  watching ~ uses A LOT of CPU!
+# Wow.  watching ~ uses A LOT of CPU!
 
 class Handler(pyinotify.ProcessEvent):
     def process_default(self, event):
