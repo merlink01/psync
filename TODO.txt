@@ -1,23 +1,100 @@
-scanning/history
+next up
+  cleanup
+      fs: fs -> history
+        fs/FileStat class
+      history: storing, comparing, reading history
+        split up scanning into getting + updating
+	  updating is in history
+	  getting is in fs
+      sync: getting remote history, fetching, merging
+      net: xmpp, nat punch, firewall, sockets
+  make latus not a mess
+    group by merge action first
+      in order: copies, moves, meta_update, touches, 
+  use deleteds_by_path to detect moves
+  scanner calls merger.merge and fetcher.fetch(merger)
+  fetch using chunk store
+    implement fetch_chunks(entries)
+      there should be a queue of the diffs
+	* it should be keyed by the path so we aren't doing an "old action"
+	but, it should have a separate queue item for each chunk?
+      uses a "coordinator" and FileChunkSource
+
+    implement merge_entries(entries):
+      touches file or moves file or copies file
+      gets temp file ready, moves current to trash, moves temp in place.
+      * inserts history entry with author_peerid and author_utime
+
+      failures:
+	if fs has changed, notify scanner
+	if no sources working, ???
+	if fs error moving file in place, LOG and leave chunks around
+
+    implement FileChunkSource:
+      read_chunk(chunkid) -> chunk_data
+      * needs a (hash, size) => current [(path, mtime, size)] lookup
+
+    implement FileChunkStore
+      ChunkId(Record("hash", "loc", "size"))
+      stores in db for restarts
+      caches in memory
+      get_status(chunkid)
+      begin(chunk) -> token (probably time)
+      cancel(chunkid, token)
+      write(chunkid, data)
+      read(chunkid) -> data  # ?    
+      remove(chunkid)
+
+    implement downloading algo
+      could use a priority queue
+
+      def begin_fetch_write(chunkid):
+	token = chunk_store.begin(chunkid)
+	try:
+	  data = ** fetch **
+	except:
+	  chunk_store.cancel(chunkid, token)
+	  ** handle error **
+	else:
+	  chunk_store.write(chunkid, data)
+
+      while chunk_queue:
+	chunkid = chunk_queue.get()
+	state = chunk_store.get_status(chunkid)
+	if state == complete:
+	  pass  # great!
+	elif state == inprogress
+	  inprogress_chunk_queue.put(chunkid)
+	else:
+	  begin_fetch_write(chunkid)
+
+      while inprogress_chunk_queue:
+	chunkid = chunk_queue.get()
+	if state == complete:
+	  pass  # great!
+	else:  # even if in progress
+	  begin_fetch_write(chunkid)
+
+  add gropuid and security
+  **** get photos to Cess
+
   more good notes
     status log (slog)
-      time
-      insterted_history
-      not_a_file(path)
-      could_not_hash(path, err)
-      hashing(path)  # with
-    scanner calls merger.merge and fetcher.fetch(merger)
-    use deleteds_by_path to detect moves
-    add actions to files db
+      put in db
+      put in logging module (file)
+      track status of hashing
     status of hashing/fetching:
       finished_count, total_count,
       finished_size, total_size,
       current_path, current_finished_size, current_size
-    ! cleanup !
+    write status to .latus/status.txt constantly
+    need from peer:
+      read_entries(since)
+      read_chunk(hash, loc, size)
+      read_merge_log(since)
+      read_status()
 
   got some syncing going on!
-    Clean up.  A lot.
-      Simplify FileHistoryStore again.
     Implement meta->meta one way sync
       use peerid
     Implement more xmpp stuff
@@ -25,15 +102,9 @@ scanning/history
     implement trash, especially for updates
     figure out what to do with conflicts
 
-
   check TODOs in files
 
-  new
-    some kind of status on hashing progress
-
   from notes
-    use enum in diff_file_stats to avoid ignore_path in two places
-    *** add action=created|deleted|changed to FileHistoryEntry
     put trash and conflicting versions in the same place
       that means just put conflicting files in trash?
       also put prepared version in trash?
@@ -100,18 +171,10 @@ scanning/history
       6. file watching
 
   next steps
-    **** get photos to Cess
-      add author_peerid and author_utime to history
-      make latus.py update two directories and diff them
-      write diff_histories
-      write     
     *** sync with iriver using it
       no hashing?
       must have efficient moves and copies
 
-    add peerid, author_peerid, and author_utime to files.db
-    add latest_by_path to FileHistoryStore (makes latus.py easier)
-    add latests_by_hash to FileHistoryStore (needed for move/copy detection)
     make FileWatcher
       pyinotify
         make it faster
@@ -125,13 +188,8 @@ scanning/history
       win32
         make it work again
 
-    get a daemon going that just records metadata all of the time
-    get a daemon going that reads a second db file every so often,
-      copies it, and figures out what is different.
     get an xmpp client that serves requests for metadata
     get an xmpp client that requests metadata and copies it
-
-  implement inotify
 
   unit tests
     tests/FileSystemTests.py
@@ -139,92 +197,11 @@ scanning/history
     tests/FileScannerTests.py: uses InMemoryFileSystem, InMemoryHistoryStore
     tests/UtilTests.py
     
-  renames?
-    fs/FileHistoryStore.py to fs/history.py
-    fs/FileSystem.py to fs/fs.py
-    fs/FileScanner.py to fs/scan.py
-
   latus.py improvements
-    move RunTime(r) out
     logging instead of printing
     logging passed to FileSystem
     slow down disk IO to not clobber system when hashing a lot
   
-  implement diff_histories(local_entries, remote_entries)
-    if my current (size, mtime, hash) == your current (size, mtime, hash), in sync
-    if my current (author_peerid, author_utime, size, mtime, hash) is in your history, I'm older
-    if your current (author_peerid, author_utime, size, mtime, hash) is in my history, I'm newer
-    otherwise, we're in conflict
-
-    be smart with file hashes to see if it's a
-      no need to fetch:
-        Delete(old, new) if new is deleted (need new for author_peerid/author_utime)
-        Copy(source, old, new) if new.hash in latest_by_hash
-        Move(source, old, new) if new.hash in latest_by_hash and source in deleteds
-      need to fetch      
-        Replace(old, new) otherwise
-        
-  implement fetch_chunks(entries)
-    there should be a queue of the diffs
-      * it should be keyed by the path so we aren't doing an "old action"
-      but, it should have a separate queue item for each chunk?
-    uses a "coordinator" and FileChunkSource
-
-  implement merge_entries(entries):
-    touches file or moves file or copies file
-    gets temp file ready, moves current to trash, moves temp in place.
-    * inserts history entry with author_peerid and author_utime
-   
-    failures:
-      if fs has changed, notify scanner
-      if no sources working, ???
-      if fs error moving file in place, LOG and leave chunks around
-
-  implement FileChunkSource:
-    read_chunk(chunkid) -> chunk_data
-    * needs a (hash, size) => current [(path, mtime, size)] lookup
-    
-  implement FileChunkStore
-    ChunkId(Record("hash", "loc", "size"))
-    stores in db for restarts
-    caches in memory
-    get_status(chunkid)
-    begin(chunk) -> token (probably time)
-    cancel(chunkid, token)
-    write(chunkid, data)
-    read(chunkid) -> data  # ?    
-    remove(chunkid)
-
-  implement downloading algo
-    could use a priority queue
-
-    def begin_fetch_write(chunkid):
-      token = chunk_store.begin(chunkid)
-      try:
-        data = ** fetch **
-      except:
-        chunk_store.cancel(chunkid, token)
-        ** handle error **
-      else:
-        chunk_store.write(chunkid, data)
-
-    while chunk_queue:
-      chunkid = chunk_queue.get()
-      state = chunk_store.get_status(chunkid)
-      if state == complete:
-        pass  # great!
-      elif state == inprogress
-        inprogress_chunk_queue.put(chunkid)
-      else:
-        begin_fetch_write(chunkid)
-    
-    while inprogress_chunk_queue:
-      chunkid = chunk_queue.get()
-      if state == complete:
-        pass  # great!
-      else:  # even if in progress
-        begin_fetch_write(chunkid)
-        
   only 4 FS threads:
     1. history: reads + writes db
     2. scanner: stats + hashes
@@ -232,16 +209,10 @@ scanning/history
     4. chunk source: reads
 
 overall:
-  local fs->metadata working
-    as daemon that runs all the time
-  local fs->fs 2-way sync (merging)
-    with two threads that commuicate with one another (two separate DBs)
-    as daemon that runs all the time
-
   xmpp<->xmpp messages
   xmpp<->xmpp metadata syncing for one user
   p2p fs->fs 1-way sync for one user
-  p2p fs<-fs 2-way sync# Copyright 2006 Uberan - All Rights Reserved
+  p2p fs<-fs 2-way sync
 
 xmpp:
   send a custom message
@@ -256,20 +227,12 @@ concurency:
 
 improvements later
   after fetching and merging
-    just let metadata scanner take care
-    of updating history.  Only "inject" things when we resolve a conflict
-    by using the local to win.
-  add gropuid and security
   commit in chunks of 1,000 so files start syncing even while
     scanning the first time (which will take a long time)
   add file watchers (win32 and inotify for now)
   filter by Win32 attributes?
 
-
 python
-  relative imports
-  new string formatting
-  catch Exception as err
   io module
   binary literals
   class decorators
