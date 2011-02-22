@@ -2,6 +2,9 @@
 
 from util import Record, sql, into, setdefault
 
+DELETED_SIZE = 0
+DELETED_MTIME = 0
+
 TABLE_NAME = "files"
 TABLE_FIELD_TYPES = ["utime integer",
                      "peerid varchar",
@@ -16,7 +19,9 @@ TABLE_FIELDS = [ft.split(" ")[0] for ft in TABLE_FIELD_TYPES]
 ## By putting utime first, we can shave .2-.3 seconds per 150,000
 ## entries when using latest_history_entry.
 class FileHistoryEntry(Record(*TABLE_FIELDS)):
-    pass
+    @property
+    def deleted(entry):
+        return entry.mtime == DELETED_MTIME
 
 ## This is faster by .2 secs for 150,000 entries.
 latest_history_entry = max

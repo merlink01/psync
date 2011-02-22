@@ -1,10 +1,8 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
-from fs import FileHistoryEntry, join_paths, mtimes_eq, latest_history_entry
+from fs import (FileHistoryEntry, join_paths, mtimes_eq, latest_history_entry,
+                DELETED_SIZE, DELETED_MTIME)
 from util import Record, groupby, partition
-
-DELETED_SIZE = 0
-DELETED_MTIME = 0
 
 class FileScanner(Record("fs", "clock", "run_timer")):
     def scan_and_update_history(self, fs_root, path_filter, hash_type,
@@ -45,7 +43,8 @@ def scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type
     with run_timer("check change stability"):
         def is_stable(entry):
             (rescan_size, rescan_mtime) = \
-                rescan_stats_by_path.get(entry.path, (DELETED_SIZE, DELETED_MTIME))
+                rescan_stats_by_path.get(entry.path,
+                                         (DELETED_SIZE, DELETED_MTIME))
             #print ("size vs", entry.size, rescan_size)
             #print ("mtime vs", entry.mtime, rescan_mtime)
             return entry.size == rescan_size and entry.mtime == rescan_mtime
@@ -60,7 +59,7 @@ def scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type
     # *** remove
     old_paths = frozenset(entry.path for entry in history_entries)
     for entry in stable_entries:
-        if entry.mtime == DELETED_MTIME:
+        if entry.deleted:
             print ("deleted", entry)
         elif entry.path not in old_paths:
             print ("added", entry)
