@@ -8,58 +8,86 @@ import hashlib
 import sqlite3
 
 from fs import (FileSystem, PathFilter, FileHistoryStore, FileHistoryEntry,
-                FileScanner, latest_history_entry, group_history_by_path)
-from util import Record, Clock, RunTimer, SqlDb
+                FileScanner, join_paths,
+                latest_history_entry, group_history_by_path)
+from util import (Record, Enum, Clock, RunTimer, SqlDb,
+                  setdefault, partition)
                   
-# *** use enum for newer, older, insync, etc
-def merge_histories(entries1, entries2):
-    for path, diff, latest1, latest2 in diff_histories(entries1, entries2):
-        if diff == "newer":
-            if (latest2 is not None
-                and latest2.size == latest1.size
-                and latest2.hash == latest1.hash):
-                print ("touch", path, latest2.mtime)
-            if latest1.hash in ():  # FILE_SYSTEM_SOMEWHERE:
-                if source_path in DELETEDS:
-                    print ("move", path, "from", source_path)
-                else:
-                    print ("copy", path, "from", source_path)
-            elif latest1.hash in ():  # TRASH_SOMEWHERE:
-                print ("undelete", path, "from", source_path)
-            elif latest1.deleted:
-                print ("delete", path)
-            elif latest2 is None:
-                print ("fetch and create", path)
-        elif diff == "inconflict":
-            print (diff, path)  # *** fetch but don't merge
+MergeAction = Enum("touch", "copy", "move", "delete", "update", "meta_update")
+
+#*** time these
+# yields [(MergeAction, source_entry, details)]
+def get_merge_actions(source_entries, dest_entries):
+    source_history_by_path = group_history_by_path(source_entries)
+    dest_history_by_path = group_history_by_path(dest_entries)
+    dest_latests_by_hash = \
+            latests_by_hash_from_history_by_path(dest_history_by_path)
+
+    for diff, path, source_latest, dest_latest in \
+            diff_histories(source_history_by_path, dest_history_by_path):
+        if diff != HistoryDiff.insync:
+            print (diff, path, source_latest, dest_latest)
+        if diff == HistoryDiff.newer:
+            old = dest_latest
+            new = source_latest
+            if new.deleted:
+                yield (MergeAction.delete, new, None)
+            elif (old != None and entries_contents_match(old, new)):
+                yield (MergeAction.touch, new, None)
+            elif new.hash in dest_latests_by_hash:
+                # TODO: futher optimize by moving instead of copying
+                yield (MergeAction.copy, new, dest_latests_by_hash[new.hash])
+            else:
+                yield (MergeAction.update, new, None)
+        elif diff == HistoryDiff.meta_conflict:
+            if source_latest.deleted:
+                yield (MergeAction.meta_update, source_latest, None)
+            else:
+                yield (MergeAction.touch, source_latest, None)
         else:
-            print (diff, path)
+            # TODO: deal with conflicts
+            pass
 
-def diff_histories(entries1, entries2):
-    history_by_path1 = group_history_by_path(entries1)
-    history_by_path2 = group_history_by_path(entries2)
+def latests_by_hash_from_history_by_path(history_by_path):
+    latests_by_hash = {}
+    for path, history in history_by_path.iteritems():
+        latest = latest_history_entry(history)
+        if not latest.deleted:
+            setdefault(latests_by_hash, latest.hash, set).add(latest)
+    return latests_by_hash
 
+HistoryDiff = Enum("insync", "newer", "older", "conflict", "meta_conflict")
+
+# yield (diff, path, latest1, latest2)
+def diff_histories(history_by_path1, history_by_path2):
     for path1, history1 in history_by_path1.iteritems():
         history2 = history_by_path2.get(path1)
         latest1 = latest_history_entry(history1)
         latest2 = None if history2 is None else latest_history_entry(history2)
         if latest2 is None:
-            diff = "newer"
+            diff = HistoryDiff.newer
         elif entries_match(latest1, latest2):
-            diff = "insync"
+            diff = HistoryDiff.insync
+        elif entries_contents_match(latest1, latest2):
+            diff = HistoryDiff.meta_conflict
         elif has_matching_entry(history1, latest2):
-            diff = "newer"
+            diff = HistoryDiff.newer
         elif has_matching_entry(history2, latest1):
-            diff = "older"
+            diff = HistoryDiff.older
         else:
-            diff = "conflict"
+            diff = HistoryDiff.conflict
 
-        yield (path1, diff, latest1, latest2)
+        yield (diff, path1, latest1, latest2)
 
     for path2, history2 in history_by_path2.iteritems():
         history1 = history_by_path1.get(path2)
         if history1 is None:
-            yield (path1, "older", None, latest_history_entry(history2))
+            yield (HistoryDiff.older, path1,
+                   None, latest_history_entry(history2))
+
+def entries_contents_match(entry1, entry2):
+    return (entry1.size  == entry2.size and
+            entry1.hash  == entry2.hash)
 
 def entries_match(entry1, entry2):
     return (entry1.size  == entry2.size and
@@ -71,6 +99,13 @@ def entries_match(entry1, entry2):
 def has_matching_entry(history, entry):
     return any(entries_match(entry, entry2) for entry2 in history)
 
+def filter_entries_by_path(entries, path_filter):
+    return (entry for entry in entries
+            if not path_filter.ignore_path(entry.path))
+
+def first(itr):
+    for val in itr:
+        return val
 
 if __name__ == "__main__":
     import time
@@ -93,8 +128,7 @@ if __name__ == "__main__":
     run_timer = RunTimer(clock, logger = log_run_time)
     scanner = FileScanner(fs, clock, run_timer)
 
-    # hash_type = hashlib.sha1
-    hash_type = None
+    hash_type = hashlib.sha1
 
     names_to_ignore = frozenset([
         # don't scan our selves!
@@ -145,9 +179,59 @@ if __name__ == "__main__":
             fs_root2, path_filter, hash_type, history_store, peerid2)
         history_entries2 = history_store.read_entries()
 
-    # *** filter entries2?
-    merge_histories(history_entries1, history_entries2)
+        # ********************************** #
+        # TODO: use filter_entries_by_path
+        actions = get_merge_actions(history_entries1, history_entries2)
+        copies, actions = partition(actions,
+                                    lambda action: action[0] == MergeAction.copy)
+        # We must do copy actions first, in case we change the source
+        # (especially if we delete in, as in the case of a move/rename.
+        for _, entry, local_sources in copies:
+            # TODO: We could try other local sources if one fails.
+            source_path = join_paths(fs_root2, first(local_sources).path)
+            dest_path = join_paths(fs_root2, entry.path)
+            # ***: verifying dest hasn't changed
+            # *** handle errors
+            print ("copying {0} => {1}", source_path, dest_path)
+            # **** insert new entry!
+            fs.copy_tree(source_path, dest_path)
+            history_store.add_entries(
+                [entry.alter(utime=clock.unix(), peerid=peerid2)])
 
+        for action, entry, _ in actions:
+            print (action, entry)
+            source_path = join_paths(fs_root, entry.path)
+            dest_path = join_paths(fs_root2, entry.path)
+            if action == MergeAction.meta_update:
+                print ("meta-merging {0}", dest_path)
+                history_store.add_entries(
+                    [entry.alter(utime=clock.unix(), peerid=peerid2)])
+            elif action == MergeAction.touch:
+                # ***: verifying dest hasn't changed
+                # *** handle errors
+                print ("touching {0}", dest_path)
+                fs.touch(dest_path, entry.mtime)
+                history_store.add_entries(
+                    [entry.alter(utime=clock.unix(), peerid=peerid2)])
+            elif action == MergeAction.update:
+                # ***: verifying dest hasn't changed
+                # *** handle errors
+                # ***: implement fetching
+                print ("copying {0} => {1}", source_path, dest_path)
+                fs.copy_tree(source_path, dest_path)
+                # ****: This touching doesn't seem to be working.
+                fs.touch(dest_path, entry.mtime)
+                history_store.add_entries(
+                    [entry.alter(utime=clock.unix(), peerid=peerid2)])
+            elif action == MergeAction.delete:
+                # ***: verifying dest hasn't changed
+                # *** handle errors
+                print ("moving to trash {0}", dest_path)
+                fs.move_to_trash(dest_path, dest_path)
+                history_store.add_entries(
+                    [entry.alter(utime=clock.unix(), peerid=peerid2)])
+            else:
+                print ("warning! don't know how to merge", action, source.path)
 
 # class FileScanner(Actor):
 #     def __init__(self, fs):

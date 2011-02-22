@@ -1,4 +1,20 @@
 scanning/history
+  got some syncing going on!
+    Clean up.  A lot.
+      Simplify FileHistoryStore again.
+    Implement meta->meta one way sync
+      use peerid
+    Implement more xmpp stuff
+    watch out for performance
+    implement trash, especially for updates
+    figure out what to do with conflicts
+
+
+  check TODOs in files
+
+  new
+    some kind of status on hashing progress
+
   from notes
     use enum in diff_file_stats to avoid ignore_path in two places
     *** add action=created|deleted|changed to FileHistoryEntry
