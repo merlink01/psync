@@ -3,7 +3,7 @@
 from fs import (FileHistoryEntry, group_history_by_path,
                 join_paths, mtimes_eq, latest_history_entry,
                 DELETED_SIZE, DELETED_MTIME)
-from util import Record, partition
+from util import Record, Enum, partition
 
 class FileScanner(Record("fs", "clock", "run_timer")):
     def scan_and_update_history(self, fs_root, path_filter, hash_type,
@@ -25,7 +25,10 @@ def scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type
 
     with run_timer("diff file stats") as rt:
         changed_stats = list(
-            diff_file_stats(file_stats, history_entries, path_filter, run_timer))
+            (path, size, mtime) for (diff, path, size, mtime) in
+            diff_file_stats(file_stats, history_entries, run_timer)
+            if (diff != FileDiff.unchanged
+                and not path_filter.ignore_path(path)))
         rt.set_result({"changed stats": len(changed_stats)})
 
     with run_timer("hash files") as rt:
@@ -71,46 +74,30 @@ def scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type
         rt.set_result({"path count": len(history_by_path),
                        "total size": total_size})
 
-# yields (path, size, mtime) if the path is new
-#        (path, size, mtime) if the size or mtime have changed
-#        (path, DELETED_SIZE, DELETED_MTIME) if the path is missing
-def diff_file_stats(file_stats, history_entries, path_filter, run_timer):
+FileDiff = Enum("unchanged", "created", "changed", "deleted")
+
+# yields (FileDiff, path, size, mtime)
+def diff_file_stats(file_stats, history_entries, run_timer):
     with run_timer("group history by path") as rt:
         history_by_path = group_history_by_path(history_entries)
         rt.set_result({"path count": len(history_by_path)})
         
-
     with run_timer("compare to latest history"):
-        #**** use enum to avoid filter in two places
         for path, size, mtime in file_stats:
             history = history_by_path.get(path)
             latest = None if history is None else latest_history_entry(history)
-            if latest is not None \
-                   and latest.size == size \
-                   and mtimes_eq(latest.mtime, mtime):
-                # unchanged
-                pass  
-            elif path_filter.ignore_path(path):
-                # ignored  
-                pass
-                #*** improve logging here
-                # print ("ignoring", path)
-                # logging.warning("ignoring {0}".format(path))
+            if latest is None:
+                yield (FileDiff.created, path, size, mtime)
+            elif latest.size == size and mtimes_eq(latest.mtime, mtime):
+                yield (FileDiff.unchanged, path, size, mtime)
             else:
-                # change or created (created if last == None)
-                yield path, size, mtime  
+                yield (FileDiff.changed, path, size, mtime)
 
     with run_timer("find missing paths"):
-        history_paths = frozenset(history_by_path.iterkeys())
-        listed_paths = frozenset(path for path, size, mtime in file_stats)
-        missing_paths = history_paths - listed_paths
+        missing_paths = (frozenset(history_by_path.iterkeys())
+                         - frozenset(path for path, size, mtime in file_stats))
         for path in missing_paths:
-            if path_filter.ignore_path(path):
-                # ignored
-                pass
-            else:
-                # deleted
-                yield path, DELETED_SIZE, DELETED_MTIME
+            yield (FileDiff.deleted, path, DELETED_SIZE, DELETED_MTIME)
 
 # yields new FileHistoryEntry
 def hash_file_stats(fs, fs_root, file_stats, hash_type, peerid, clock):
@@ -128,11 +115,11 @@ def hash_file_stats(fs, fs_root, file_stats, hash_type, peerid, clock):
                     author_peerid, author_utime)
             except IOError:
                 pass
-                # *** better logging
+                # TODO: better logging
                 # print ("ignoring because could not hash", path)
         else:
             pass
-            # *** better logging
+            # TODO: better logging
             # print ("ignoring because it's not a file", path)
 
 def group_stats_by_path(file_stats):
