@@ -271,7 +271,7 @@ class FileSystem(Record("path_encoder", "trash", "log")):
         shutil.move(encoded_from_path, encoded_to_path)
 
     # Blows up if existing stuff "in the way".
-    def copy_tree(fs, source, destination):
+    def copy_tree(fs, from_path, to_path):
         encoded_from_path = fs.encode_path(from_path)
         encoded_to_path = fs.encode_path(to_path)
         fs.create_dir(parent_path(to_path))
