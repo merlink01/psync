@@ -10,14 +10,14 @@ from Actor import Actor
 from Enum import Enum
 from Future import Future
 from Record import Record
-from RunTimer import RunTimer
+from RunTimer import RunTimer, RunTime
 from SqlDb import SqlDb
 
 class Clock:
     def unix(_):
         return time.time()
 
-def groupby_list(vals, key = None):
+def groupby(vals, key = None):
     group_by_key = {}
     for val in vals:
         group = group_by_key.setdefault(key(val), [])

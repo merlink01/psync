@@ -1,4 +1,20 @@
 scanning/history
+  more good notes
+    status log (slog)
+      time
+      insterted_history
+      not_a_file(path)
+      could_not_hash(path, err)
+      hashing(path)  # with
+    scanner calls merger.merge and fetcher.fetch(merger)
+    use deleteds_by_path to detect moves
+    add actions to files db
+    status of hashing/fetching:
+      finished_count, total_count,
+      finished_size, total_size,
+      current_path, current_finished_size, current_size
+    ! cleanup !
+
   got some syncing going on!
     Clean up.  A lot.
       Simplify FileHistoryStore again.

@@ -4,13 +4,15 @@ import sys
 if sys.version_info < (2, 6):
     raise UnsupportedPythonVersionError(sys.version)
 
+from contextlib import contextmanager
+
 import hashlib
 import sqlite3
 
 from fs import (FileSystem, PathFilter, FileHistoryStore, FileHistoryEntry,
                 FileScanner, join_paths,
                 latest_history_entry, group_history_by_path)
-from util import (Record, Enum, Clock, RunTimer, SqlDb,
+from util import (Record, Enum, Clock, RunTime, SqlDb,
                   setdefault, partition)
                   
 MergeAction = Enum("touch", "copy", "move", "delete", "update", "meta_update")
@@ -82,7 +84,7 @@ def diff_histories(history_by_path1, history_by_path2):
     for path2, history2 in history_by_path2.iteritems():
         history1 = history_by_path1.get(path2)
         if history1 is None:
-            yield (HistoryDiff.older, path1,
+            yield (HistoryDiff.older, path2,
                    None, latest_history_entry(history2))
 
 def entries_contents_match(entry1, entry2):
@@ -119,14 +121,38 @@ if __name__ == "__main__":
     peerid2 = sys.argv[4]
     db_path2 = os.path.join(fs_root2, ".latus/db")
 
+    class StatusLog(Record("clock")):
+        def time(self, name):
+            return RunTime(name, self.clock, self.log_run_time)
 
-    def log_run_time(rt):
-        print ("timed", "{0:.2f} secs".format(rt.elapsed), rt.name, rt.result)
+        def log_run_time(self, rt):
+            print ("timed", "{0:.2f} secs".format(rt.elapsed),
+                   rt.name, rt.result)
+
+        def ignored_paths(self, paths):
+            for path in paths:
+                print ("ignored", path)
+
+        @contextmanager
+        def hashing(self, path):
+            print ("begin hashing", path)
+            yield
+            print ("end hashing", path)
+                
+        def not_a_file(self, path):
+            print ("not a file", path)
+
+        def could_not_hash(self, path):
+            print ("could not hash", path)
+
+        def inserted_history(self, entries):
+            for entry in entries:
+                print ("inserted", entry)
 
     fs = FileSystem()
     clock = Clock()
-    run_timer = RunTimer(clock, logger = log_run_time)
-    scanner = FileScanner(fs, clock, run_timer)
+    slog = StatusLog(clock)
+    scanner = FileScanner(fs, clock, slog)
 
     hash_type = hashlib.sha1
 
@@ -164,20 +190,20 @@ if __name__ == "__main__":
     fs.create_parent_dirs(db_path)
     with sqlite3.connect(db_path) as db_conn:
         db = SqlDb(db_conn)
-        history_store = FileHistoryStore(db)
+        history_store = FileHistoryStore(db, slog)
 
         scanner.scan_and_update_history(
             fs_root, path_filter, hash_type, history_store, peerid)
-        history_entries1 = history_store.read_entries()
+        history_entries1 = history_store.read_entries(peerid)
 
     fs.create_parent_dirs(db_path2)
     with sqlite3.connect(db_path2) as db_conn:
         db = SqlDb(db_conn)
-        history_store = FileHistoryStore(db)
+        history_store = FileHistoryStore(db, slog)
 
         scanner.scan_and_update_history(
             fs_root2, path_filter, hash_type, history_store, peerid2)
-        history_entries2 = history_store.read_entries()
+        history_entries2 = history_store.read_entries(peerid2)
 
         # ********************************** #
         # TODO: use filter_entries_by_path
@@ -203,13 +229,13 @@ if __name__ == "__main__":
             source_path = join_paths(fs_root, entry.path)
             dest_path = join_paths(fs_root2, entry.path)
             if action == MergeAction.meta_update:
-                print ("meta-merging {0}", dest_path)
+                print ("meta-merging {0}".format(dest_path))
                 history_store.add_entries(
                     [entry.alter(utime=clock.unix(), peerid=peerid2)])
             elif action == MergeAction.touch:
                 # ***: verifying dest hasn't changed
                 # *** handle errors
-                print ("touching {0}", dest_path)
+                print ("touching {0}".format(dest_path))
                 fs.touch(dest_path, entry.mtime)
                 history_store.add_entries(
                     [entry.alter(utime=clock.unix(), peerid=peerid2)])
@@ -217,7 +243,7 @@ if __name__ == "__main__":
                 # ***: verifying dest hasn't changed
                 # *** handle errors
                 # ***: implement fetching
-                print ("copying {0} => {1}", source_path, dest_path)
+                print ("copying {0} => {1}".format(source_path, dest_path))
                 fs.copy_tree(source_path, dest_path)
                 # ****: This touching doesn't seem to be working.
                 fs.touch(dest_path, entry.mtime)
@@ -226,7 +252,7 @@ if __name__ == "__main__":
             elif action == MergeAction.delete:
                 # ***: verifying dest hasn't changed
                 # *** handle errors
-                print ("moving to trash {0}", dest_path)
+                print ("moving to trash {0}".format(dest_path))
                 fs.move_to_trash(dest_path, dest_path)
                 history_store.add_entries(
                     [entry.alter(utime=clock.unix(), peerid=peerid2)])
