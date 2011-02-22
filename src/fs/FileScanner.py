@@ -64,7 +64,8 @@ def scan_and_update_history(fs, fs_root, names_to_ignore, path_filter, hash_type
                        "unstable entries": len(unstable_entries)})
 
     with run_timer("insert new history entries"):
-        history_store.add_entries(stable_entries)
+        if stable_entries:
+            history_store.add_entries(stable_entries)
 
     with run_timer("reread history") as rt:
         history_entries = history_store.read_entries()
@@ -97,19 +98,27 @@ def diff_file_stats(file_stats, history_entries, run_timer):
         missing_paths = (frozenset(history_by_path.iterkeys())
                          - frozenset(path for path, size, mtime in file_stats))
         for path in missing_paths:
-            yield (FileDiff.deleted, path, DELETED_SIZE, DELETED_MTIME)
+            # TODO: this could probably be more efficient
+            latest = latest_history_entry(history_by_path.get(path))
+            if not latest.deleted:
+                yield (FileDiff.deleted, path, DELETED_SIZE, DELETED_MTIME)
 
 # yields new FileHistoryEntry
+# *** turn this into "get FileHistoryEntries" or something like that.
 def hash_file_stats(fs, fs_root, file_stats, hash_type, peerid, clock):
     utime = int(clock.unix())
+    author_peerid = peerid
+    author_utime = utime
+
     for path, size, mtime in file_stats:
         full_path = join_paths(fs_root, path)
 
-        if fs.isfile(full_path):
+        if mtime == DELETED_MTIME:
+            yield FileHistoryEntry(utime, peerid, path, size, mtime, "",
+                                   author_peerid, author_utime)
+        elif fs.isfile(full_path):
             try:
                 hash = fs.hash(full_path, hash_type)
-                author_peerid = peerid
-                author_utime = utime
                 yield FileHistoryEntry(
                     utime, peerid, path, size, mtime, hash.encode("hex"),
                     author_peerid, author_utime)
