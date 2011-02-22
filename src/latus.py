@@ -15,7 +15,7 @@ from fs import (FileSystem, PathFilter, FileHistoryStore, FileHistoryEntry,
 from util import (Record, Enum, Clock, RunTime, SqlDb,
                   setdefault, partition)
                   
-MergeAction = Enum("touch", "copy", "move", "delete", "update", "meta_update")
+MergeAction = Enum("touch", "copy", "move", "delete", "update", "history_update")
 
 #*** time these
 # yields [(MergeAction, source_entry, details)]
@@ -41,9 +41,9 @@ def get_merge_actions(source_entries, dest_entries):
                 yield (MergeAction.copy, new, dest_latests_by_hash[new.hash])
             else:
                 yield (MergeAction.update, new, None)
-        elif diff == HistoryDiff.meta_conflict:
+        elif diff == HistoryDiff.history_conflict:
             if source_latest.deleted:
-                yield (MergeAction.meta_update, source_latest, None)
+                yield (MergeAction.history_update, source_latest, None)
             else:
                 yield (MergeAction.touch, source_latest, None)
         else:
@@ -58,7 +58,7 @@ def latests_by_hash_from_history_by_path(history_by_path):
             setdefault(latests_by_hash, latest.hash, set).add(latest)
     return latests_by_hash
 
-HistoryDiff = Enum("insync", "newer", "older", "conflict", "meta_conflict")
+HistoryDiff = Enum("insync", "newer", "older", "conflict", "history_conflict")
 
 # yield (diff, path, latest1, latest2)
 def diff_histories(history_by_path1, history_by_path2):
@@ -71,7 +71,7 @@ def diff_histories(history_by_path1, history_by_path2):
         elif entries_match(latest1, latest2):
             diff = HistoryDiff.insync
         elif entries_contents_match(latest1, latest2):
-            diff = HistoryDiff.meta_conflict
+            diff = HistoryDiff.history_conflict
         elif has_matching_entry(history1, latest2):
             diff = HistoryDiff.newer
         elif has_matching_entry(history2, latest1):
@@ -104,10 +104,6 @@ def has_matching_entry(history, entry):
 def filter_entries_by_path(entries, path_filter):
     return (entry for entry in entries
             if not path_filter.ignore_path(entry.path))
-
-def first(itr):
-    for val in itr:
-        return val
 
 if __name__ == "__main__":
     import time
@@ -214,7 +210,7 @@ if __name__ == "__main__":
         # (especially if we delete in, as in the case of a move/rename.
         for _, entry, local_sources in copies:
             # TODO: We could try other local sources if one fails.
-            source_path = join_paths(fs_root2, first(local_sources).path)
+            source_path = join_paths(fs_root2, next(local_sources).path)
             dest_path = join_paths(fs_root2, entry.path)
             # ***: verifying dest hasn't changed
             # *** handle errors
@@ -229,7 +225,7 @@ if __name__ == "__main__":
             source_path = join_paths(fs_root, entry.path)
             dest_path = join_paths(fs_root2, entry.path)
             if action == MergeAction.meta_update:
-                print ("meta-merging {0}".format(dest_path))
+                print ("history-merging {0}".format(dest_path))
                 history_store.add_entries(
                     [entry.alter(utime=clock.unix(), peerid=peerid2)])
             elif action == MergeAction.touch:
