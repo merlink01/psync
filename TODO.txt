@@ -1,17 +1,11 @@
+ideas
+  make a "GroupPath" object of (group, path), which has .path and .full_path?
+
 next up
-  cleanup
-      fs: fs -> history
-        fs/FileStat class
-      history: storing, comparing, reading history
-        split up scanning into getting + updating
-	  updating is in history
-	  getting is in fs
-      sync: getting remote history, fetching, merging
-      net: xmpp, nat punch, firewall, sockets
+  use deleteds_by_path to detect moves
   make latus not a mess
     group by merge action first
       in order: copies, moves, meta_update, touches, 
-  use deleteds_by_path to detect moves
   scanner calls merger.merge and fetcher.fetch(merger)
   fetch using chunk store
     implement fetch_chunks(entries)
@@ -78,6 +72,15 @@ next up
   add gropuid and security
   **** get photos to Cess
 
+  cleanup?
+      fs: fs -> history
+        FileSystem
+      history: storing, comparing, reading history
+        split up scanning into getting + updating
+	  updating is in history
+	  getting is in fs
+      sync: getting remote history, fetching, merging
+      net: xmpp, nat punch, firewall, sockets
   more good notes
     status log (slog)
       put in db

@@ -1,11 +1,10 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
-import operator
-
-from fs import DELETED_SIZE, DELETED_MTIME
-from util import Record, sql, setdefault, groupby_set
+from util import Record, sql, setdefault
 
 TABLE_NAME = "files"
+## By putting utime first, we can shave .2-.3 seconds per 150,000
+## entries when getting latest by using max().
 TABLE_FIELD_TYPES = ["utime integer",
                      "peerid varchar",
                      "path varchar",
@@ -17,25 +16,11 @@ TABLE_FIELD_TYPES = ["utime integer",
                      "author_action varchar"]
 TABLE_FIELDS = [ft.split(" ")[0] for ft in TABLE_FIELD_TYPES]
 
-## By putting utime first, we can shave .2-.3 seconds per 150,000
-## entries when using latest_history_entry.
-class FileHistoryEntry(Record(*TABLE_FIELDS)):
-    @property
-    def deleted(entry):
-        return entry.mtime == DELETED_MTIME
+# Have to import HistoryEntry after TABLE_FIELDS is set, since
+# HistoryEntry is based on TABLE_FIELDS.
+from entry import HistoryEntry, group_history_by_peerid
 
-def group_history_by_path(entries):
-    return groupby_set(entries, operator.itemgetter(2))
-
-def group_history_by_peerid(entries):
-    return groupby_set(entries, operator.itemgetter(1))
-
-## This is faster by .2 secs for 150,000 entries.
-latest_history_entry = max
-# def latest_history_entry(history):
-#     return max(history, key = FileHistoryEntry.get_utime)
-
-class FileHistoryStore(Record("db", "slog", "cache_by_peerid")):
+class HistoryStore(Record("db", "slog", "cache_by_peerid")):
     def __new__(cls, db, slog):
         db.create(TABLE_NAME, TABLE_FIELD_TYPES)
         return cls.new(db, slog, {})
@@ -50,7 +35,7 @@ class FileHistoryStore(Record("db", "slog", "cache_by_peerid")):
     # Reads 100,000/sec on my 2008 Macbook.  If you sort by utime, it goes
     # down to 40,000/sec, so that doesn't seem like a good idea.
     def select_entries(self):
-        return self.db.select(TABLE_NAME, TABLE_FIELDS, into=FileHistoryEntry)
+        return self.db.select(TABLE_NAME, TABLE_FIELDS, into=HistoryEntry)
 
     def add_entries(self, new_entries):
         self.db.insert(TABLE_NAME, TABLE_FIELDS, new_entries)
