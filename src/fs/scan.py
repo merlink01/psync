@@ -11,7 +11,7 @@ FileDiffType = Enum("unchanged", "created", "changed", "deleted")
 @type_constructors(FileDiffType)
 class FileDiff(Record("type", "path", "size", "mtime")):
     @property
-    def deleted(entry):
+    def was_deleted(entry):
         return entry.mtime == DELETED_MTIME
 
 def scan_and_update_history(fs, fs_root, path_filter, hash_type,
@@ -52,7 +52,8 @@ def scan_and_update_history(fs, fs_root, path_filter, hash_type,
             (rescan_size, rescan_mtime) = \
                 rescan_stats_by_path.get(entry.path,
                                          (DELETED_SIZE, DELETED_MTIME))
-            return entry.size == rescan_size and entry.mtime == rescan_mtime
+            return entry.size == rescan_size and \
+                   mtimes_eq(entry.mtime, rescan_mtime)
 
         stable_entries, unstable_entries = \
             partition(new_history_entries, is_stable)
@@ -108,7 +109,7 @@ def hash_diff_stats(fs, fs_root, fdiffs, hash_type, peerid, clock, slog):
     author_utime = utime
 
     for fdiff in fdiffs:
-        if fdiff.deleted:
+        if fdiff.was_deleted:
             hash = ""
         else:
             hash = hash_path(fs, fs_root, fdiff.path, hash_type, slog)
