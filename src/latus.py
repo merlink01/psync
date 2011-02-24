@@ -56,6 +56,12 @@ class StatusLog(Record("clock")):
         print ("end copy", from_path, to_path)
 
     @contextmanager
+    def moving(self, from_path, to_path):
+        print ("begin move", from_path, to_path)
+        yield
+        print ("end move", from_path, to_path)
+
+    @contextmanager
     def trashing(self, entry):
         details = entry.hash or (entry.size, entry.mtime)
         print ("begin trashing", entry.path, details)
@@ -86,9 +92,7 @@ def diff_fetch_merge(fs, source_root, source_entries,
                 raise Exception("file created", path)
         else:
             if not fs.stat_eq(full_path, latest.size, latest.mtime):
-                raise Exception("file changed!", full_path,
-                                "expected", (latest.size, latest.mtime),
-                                "actual", (current_size, current_mtime))
+                raise Exception("file changed!", full_path)
 
         return full_path
         
@@ -97,8 +101,35 @@ def diff_fetch_merge(fs, source_root, source_entries,
     touches, copies, moves, deletes, undeletes, updates, updates_h, conflicts = \
              (action_by_type.get(type, []) for type in MergeActionType)
 
-    # We must do copy actions first, in case we change the source
-    # (especially if we delete in, as in the case of a move/rename.
+    # If a copy also has a matching delete, make it as "move".
+    deletes_by_hash = groupby(deletes, lambda delete: delete.older.hash)
+    real_copies = []
+    for action in copies:
+        deletes = deletes_by_hash.get(action.newer.hash, [])
+        if action.newer.hash and deletes:
+            # Pop so we only match a given delete once.  But we
+            # leave the deleted in the deleteds so that it's put
+            # in the history and merge data, but we don't put it
+            # in the revisions.
+            delete = deletes.pop()
+            moves.append(action.alter(
+                type = MergeActionType.move, details = delete.older))
+        else:
+            real_copies.append(action)
+    copies = real_copies
+
+    # Since we have revisions, we can also detect updates which are
+    # really "undeletes".
+    real_updates = []
+    for action in updates:
+        if action.newer in revisions:
+            undeletes.append(action.set_type(MergeActionType.undelete))
+        else:
+            real_updates.append(action)
+    updates = real_updates
+
+
+    # We must do copy and move actions first, in case we change the souce.
     for action in copies:
         source_latest = next(iter(action.details))
         source_path = verify_stat(dest_root, source_latest.path, source_latest)
@@ -107,14 +138,13 @@ def diff_fetch_merge(fs, source_root, source_entries,
             fs.copy(source_path, dest_path, mtime = action.newer.mtime)
         merge(action)
         
-    # Since we have revisions, we can detect undeletes now.
-    real_updates = []
-    for action in updates:
-        if action.newer in revisions:
-            undeletes.append(action.set_type(MergeActionType.undelete))
-        else:
-            real_updates.append(action)
-    updates = real_updates
+    for action in moves:
+        source_latest = action.details
+        source_path = verify_stat(dest_root, source_latest.path, source_latest)
+        dest_path = verify_stat(dest_root, action.path, action.older)
+        with slog.moving(source_path, dest_path):
+            fs.move(source_path, dest_path, mtime = action.newer.mtime)
+        merge(action)
 
     for action in updates_h:
         merge(action)

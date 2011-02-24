@@ -248,11 +248,13 @@ class FileSystem(Record("slog", "path_encoder")):
             os.makedirs(encoded_path)
 
     # # Blows up if existing stuff "in the way".
-    def move(fs, from_path, to_path):
+    def move(fs, from_path, to_path, mtime = None):
         encoded_from_path = fs.encode_path(from_path)
         encoded_to_path = fs.encode_path(to_path)
         fs.create_parent_dirs(to_path)
         os.rename(encoded_from_path, encoded_to_path)
+        if mtime is not None:
+            fs.touch(to_path, mtime)
 
     # Blows up if existing stuff "in the way".
     def copy(fs, from_path, to_path, mtime = None):
