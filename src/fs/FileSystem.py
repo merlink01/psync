@@ -38,6 +38,11 @@ def parent_path(path):
         parent, child = "", path
     return parent
 
+# Windows shaves off a bit of mtime info.
+# TODO: Only do this sillyness on Windows.
+def mtimes_eq(mtime1, mtime2):
+    return (mtime1 >> 1) == (mtime2 >> 1)
+
 def PathEncoder():
     is_mac = platform.os.name == "posix" and platform.system() == "Darwin"
     is_windows = platform.os.name in ["nt", "dos"]
@@ -70,34 +75,13 @@ class WindowsPathEncoder(Record("encoding", "decoding")):
     def decode_path(self, win_path):
         return win_path.replace(os.sep, PATH_SEP).decode(self.decoding)
 
-class FileSystemTrash(Record("trash_path")):
-    def move_to_trash(self, fs, full_path, rel_trashed_path):
-        destination_path = join_paths(self.trash_path, rel_trashed_path)
-        self.clear_path(fs, destination_path)
-        fs.move(full_path, destination_path)
-
-    def clear_path(self, fs, path):
-        fs.delete(path)
-
-        ancestor = parent_path(path)
-        while fs.exists(ancestor):
-            try:
-                fs.delete(ancestor)
-            except:
-                return  # Hit a non-empty dir
-            else:
-                ancestor = parent_path(path)
-                
-
-class FileSystem(Record("path_encoder", "trash", "log")):
+class FileSystem(Record("slog", "path_encoder")):
     READ_MODE           = "rb"
     NEW_WRITE_MODE      = "wb"
     EXISTING_WRITE_MODE = "r+b"
 
-    def __new__(cls, path_encoder = None, trash = None, log = None):
-        path_encoder = path_encoder or PathEncoder()
-        log = log or logging.getLogger(cls.__name__)
-        return cls.new(path_encoder, trash, log)
+    def __new__(cls, slog):
+        return cls.new(slog, PathEncoder())
 
     def encode_path(fs, path):
         return fs.path_encoder.encode_path(path)
@@ -165,8 +149,8 @@ class FileSystem(Record("path_encoder", "trash", "log")):
             try:
                 relative_path = fs.decode_path(encoded_relative_path)
             except Exception as err:
-                fs.log.warning("Could not decode file path {0}: {1}".format(
-                        repr(encoded_relative_path), err))
+                fs.slog.path_error("Could not decode file path {0}: {1}".format(
+                    repr(encoded_relative_path), err))
             else:
                 yield relative_path
 
@@ -188,6 +172,16 @@ class FileSystem(Record("path_encoder", "trash", "log")):
         encoded_path = fs.encode_path(path)
         stats = os.stat(encoded_path)
         return stats[STAT_SIZE_INDEX], stats[STAT_MTIME_INDEX]
+
+    # Will not throw OSError for no path.  Will return False in that case.
+    def stat_eq(fs, path, size, mtime):
+        try:
+            (current_size, current_mtime) = fs.stat(path)
+            return (current_size == size and
+                    mtimes_eq(current_mtime, mtime))
+        except OSError:
+            return False
+        
 
     def read(fs, path, start = 0, size = None):
         encoded_path = fs.encode_path(path)
@@ -250,46 +244,32 @@ class FileSystem(Record("path_encoder", "trash", "log")):
 
     def create_dir(fs, path):
         encoded_path = fs.encode_path(path)
-        if not fs.exists(path):
+        if not os.path.exists(encoded_path):
             os.makedirs(encoded_path)
 
-    def delete_empty_parents(fs, path):
-        path = parent_path(path)
-        while fs.isdir(path):
-            try:
-                fs.delete(path)
-            except:
-                return  # Hit a non-empty dir
-            else:
-                path = parent_path(path)
-        
+    # # Blows up if existing stuff "in the way".
+    def move(fs, from_path, to_path):
+        encoded_from_path = fs.encode_path(from_path)
+        encoded_to_path = fs.encode_path(to_path)
+        fs.create_parent_dirs(to_path)
+        os.rename(encoded_from_path, encoded_to_path)
+
+    # Blows up if existing stuff "in the way".
+    def copy(fs, from_path, to_path):
+        encoded_from_path = fs.encode_path(from_path)
+        encoded_to_path = fs.encode_path(to_path)
+        fs.create_parent_dirs(to_path)
+        shutil.copyfile(encoded_from_path, encoded_to_path)
+
     # Blows up if non-empy directory
     def delete(fs, path):
         encoded_path = fs.encode_path(path)
         if os.path.exists(encoded_path):
             os.remove(encoded_path)
 
-    # Blows up if existing stuff "in the way".
-    def move_tree(fs, from_path, to_path):
-        encoded_from_path = fs.encode_path(from_path)
-        encoded_to_path = fs.encode_path(to_path)
-        fs.create_dir(to_path)
-        shutil.move(encoded_from_path, encoded_to_path)
-
-    # Blows up if existing stuff "in the way".
-    def copy_tree(fs, from_path, to_path):
-        encoded_from_path = fs.encode_path(from_path)
-        encoded_to_path = fs.encode_path(to_path)
-        fs.create_dir(parent_path(to_path))
-        shutil.copy(from_path, to_path)
-
-    def delete_tree(fs):
-        encoded_path = fs.encode_path(path)
-        shutil.rmtree(encoded_path)
-
-    def move_to_trash(fs, full_path, rel_trash_path):
-        if fs.trash is None:
-            fs.delete(full_path)
-        else:
-            fs.trash.move_to_trash(fs, full_path, rel_trash_path)
-
+    def remove_empty_parent_dirs(fs, path):
+        encoded_parent_path = fs.encode_path(parent_path(path))
+        try:
+            os.removedirs(encoded_parent_path)
+        except OSError:
+            pass  # Not empty

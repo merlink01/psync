@@ -9,9 +9,8 @@ from contextlib import contextmanager
 import hashlib
 import sqlite3
 
-from fs import (FileSystem, PathFilter,
-                join_paths, mtimes_eq, scan_and_update_history)
-                
+from fs import (FileSystem, PathFilter, RevisionStore,
+                join_paths, scan_and_update_history)
 from history import (HistoryStore, MergeAction, MergeActionType,
                      calculate_merge_actions)
 from util import Record, Clock, MockFuture, RunTime, SqlDb, groupby
@@ -23,6 +22,9 @@ class StatusLog(Record("clock")):
     def log_run_time(self, rt):
         print ("timed", "{0:.2f} secs".format(rt.elapsed),
                rt.name, rt.result)
+
+    def path_error(self, err):
+        print ("path error", err)
 
     def ignored_paths(self, paths):
         for path in paths:
@@ -37,12 +39,6 @@ class StatusLog(Record("clock")):
     def inserted_history(self, entries):
         for entry in entries:
             print ("inserted", entry)
-
-    def moved_to_trash(self, full_path, rel_path):
-        print ("moved to trash", full_path, rel_path)
-
-    def already_moved_to_trash(self, full_path):
-        print ("already moved to trash ?", full_path)
 
     def merged(self, action):
         print ("merged", action)
@@ -59,23 +55,30 @@ class StatusLog(Record("clock")):
         yield
         print ("end copy", from_path, to_path)
 
-# fetch must be entry -> future(fetched_path)
-# merge must be entry -> future()
+    @contextmanager
+    def trashing(self, entry):
+        details = entry.hash or (entry.size, entry.mtime)
+        print ("begin trashing", entry.path, details)
+        yield
+        print ("end trashing", entry.path, details)
+
+# fetch is entry -> future(fetched_path)
+# trash is (full_path, entry) -> ()
+# merge is action -> ()
 # *** handle errors
+# *** better created! and changed! errors
 # *** futher optimize by moving instead of copying
 def diff_fetch_merge(fs, source_root, source_entries,
                      dest_root, dest_entries, dest_store,
-                     fetch, merge, slog):
+                     fetch, trash, merge, slog):
     def verify_stat(fs_root, path, latest):
         full_path = join_paths(fs_root, path)
 
-        if latest is None:
+        if latest is None or latest.deleted:
             if fs.exists(full_path):
                 raise Exception("file created", path)
         else:
-            (current_size, current_mtime) = fs.stat(full_path)
-            if not (current_size == latest.size and
-                    mtimes_eq(current_mtime, latest.mtime)):
+            if not fs.stat_eq(full_path, latest.size, latest.mtime):
                 raise Exception("file changed!", full_path,
                                 "expected", (latest.size, latest.mtime),
                                 "actual", (current_size, current_mtime))
@@ -94,7 +97,7 @@ def diff_fetch_merge(fs, source_root, source_entries,
         source_path = verify_stat(dest_root, source_latest.path, source_latest)
         dest_path = verify_stat(dest_root, action.path, action.older)
         with slog.copying(source_path, dest_path):
-            fs.copy_tree(source_path, dest_path)
+            fs.copy(source_path, dest_path)
             fs.touch(dest_path, action.newer.mtime)
         merge(action)
         
@@ -109,20 +112,17 @@ def diff_fetch_merge(fs, source_root, source_entries,
     for action in deletes:
         dest_path = join_paths(dest_root, action.path)
         if fs.exists(dest_path):
-            verify_stat(dest_root, action.path, action.older)
-            fs.move_to_trash(dest_path, action.path)
-            slog.moved_to_trash(dest_path, action.path)
-        else:
-            slog.already_move_to_trash(dest_path)
+            dest_path = verify_stat(dest_root, action.path, action.older)
+            trash(dest_path, action.older)
         merge(action)
 
     for action in updates:
-        dest_path = verify_stat(dest_root, action.path, action.older)
-
         def copy_and_merge(source_path_f):
             source_path = source_path_f.get()
+            dest_path = verify_stat(dest_root, action.path, action.older)
+            trash(dest_path, action.older)
             with slog.copying(source_path, dest_path):
-                fs.copy_tree(source_path, dest_path)
+                fs.copy(source_path, dest_path)
                 fs.touch(dest_path, action.newer.mtime)
             merge(action)
         
@@ -133,9 +133,9 @@ def diff_fetch_merge(fs, source_root, source_entries,
 if __name__ == "__main__":
     import os
 
-    fs = FileSystem()
     clock = Clock()
     slog = StatusLog(clock)
+    fs = FileSystem(slog)
 
     hash_type = hashlib.sha1
 
@@ -173,12 +173,15 @@ if __name__ == "__main__":
     fs_root1, peerid1, fs_root2, peerid2 = sys.argv[1:5]
     db_path1 = os.path.join(fs_root1, ".latus/db")
     db_path2 = os.path.join(fs_root2, ".latus/db")
+    revisions_root2 = os.path.join(fs_root2, ".latus/revisions/")
 
     fs.create_parent_dirs(db_path1)
     fs.create_parent_dirs(db_path2)
     with sqlite3.connect(db_path1) as db1, sqlite3.connect(db_path2) as db2:
         history_store1 = HistoryStore(SqlDb(db1), slog)
         history_store2 = HistoryStore(SqlDb(db2), slog)
+        revisions2 = RevisionStore(fs, revisions_root2)
+
 
         history_entries1 = scan_and_update_history(
             fs, fs_root1, path_filter, hash_type,
@@ -190,6 +193,12 @@ if __name__ == "__main__":
         def fetch(entry):
             return MockFuture(join_paths(fs_root1, entry.path))
 
+        def trash(source_path, dest_entry):
+            if dest_entry not in revisions2:
+                with slog.trashing(dest_entry):
+                    revisions2.move_in(source_path, dest_entry)
+                    fs.remove_empty_parent_dirs(source_path)
+
         def merge(action):
             new_entry = action.newer.alter(utime=clock.unix(), peerid=peerid2)
             history_store2.add_entries([new_entry])
@@ -197,7 +206,7 @@ if __name__ == "__main__":
 
         diff_fetch_merge(fs, fs_root1, history_entries1,
                          fs_root2, history_entries2, history_store2,
-                         fetch, merge, slog)
+                         fetch, trash, merge, slog)
 
     # # *** use filter_entries_by_path
     # def filter_entries_by_path(entries, path_filter):

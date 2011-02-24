@@ -1,8 +1,8 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
 from history import HistoryEntry, group_history_by_path
-from FileSystem import DELETED_MTIME, DELETED_SIZE
-from fs import FileStat, join_paths, mtimes_eq
+from FileSystem import DELETED_MTIME, DELETED_SIZE, mtimes_eq
+from fs import FileStat, join_paths
 from util import Record, Enum, partition, type_constructors
 
 FileDiffType = Enum("unchanged", "created", "changed", "deleted")
