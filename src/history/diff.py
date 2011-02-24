@@ -70,16 +70,16 @@ def calculate_merge_actions(source_entries, dest_entries):
     dest_latests_by_hash = \
             latests_by_hash_from_history_by_path(dest_history_by_path)
 
-    for (diff, path, older, newer) in \
+    for (diff, path, newer, older) in \
             diff_histories(source_history_by_path, dest_history_by_path):
         if diff == HistoryDiffType.newer:
             if newer.deleted:
                 yield MergeAction.delete(older, newer)
             elif (older != None and entries_contents_match(older, newer)):
                 yield MergeAction.touch(older, newer)
-            elif newer.hash in dest_latests_by_hash:
-                local_source = dest_latests_by_hash[newer.hash]
-                yield MergeAction.copy(older, newer, local_source)
+            elif newer.hash and newer.hash in dest_latests_by_hash:
+                local_sources = dest_latests_by_hash[newer.hash]
+                yield MergeAction.copy(older, newer, local_sources)
             else:  # Not deleted, different content, and not available locally
                 yield MergeAction.update(None, newer)
         elif diff == HistoryDiffType.history_conflict:
