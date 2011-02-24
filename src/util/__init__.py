@@ -15,7 +15,7 @@ from SqlDb import SqlDb
 
 class Clock:
     def unix(_):
-        return time.time()
+        return int(time.time())
 
 def groupby(vals, key = None, into = None):
     group_by_key = {}
@@ -49,8 +49,11 @@ def partition(vals, predicate):
 # tricky, but it's really handy.
 def type_constructors(types):
     def add_type_constructor(cls, type):
-        setattr(cls, type.name, classmethod(
-            lambda cls, *args: cls(type, *args)))
+        @classmethod
+        def type_constructor(cls, *args):
+            return cls(type, *args)
+
+        setattr(cls, type.name, type_constructor)
 
     def add_type_constructors(cls):
         for type in types:
