@@ -1,14 +1,10 @@
 next up
   stuff from notes
-    implement "revisions"
-      add use it as trash
-      and remove trash from fs
-    automatically fix conflicts
-      later mtime wins
-      loser goes in revisions
-    use deleteds_by_path to detect moves
     add merge log table and insert them in merge()
     move merge stuff into fs/merge.py?
+
+  big ***s in latus.py
+    handle merge errors, especially "created!" and "changed!"
 
   get a network up and running
     login

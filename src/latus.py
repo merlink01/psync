@@ -78,8 +78,7 @@ class StatusLog(Record("clock")):
 # fetch is entry -> future(fetched_path)
 # trash is (full_path, entry) -> ()
 # merge is action -> ()
-# *** handle errors
-# *** better created! and changed! errors
+# *** handle errors, especially created! and changed! errors
 def diff_fetch_merge(fs, source_root, source_entries,
                      dest_root, dest_entries, dest_store,
                      fetch, trash, merge, revisions, slog):
@@ -193,8 +192,9 @@ def diff_fetch_merge(fs, source_root, source_entries,
 
         fetch(action.newer).then(copy_and_merge)
     
-            
-
+def filter_entries_by_path(entries, path_filter):
+    return (entry for entry in entries
+            if not path_filter.ignore_path(entry.path))
 
 # python latus.py ../test1 pthatcher@gmail.com/test1 ../test2 pthatcher@gmail.com/test2
 if __name__ == "__main__":
@@ -249,7 +249,6 @@ if __name__ == "__main__":
         history_store2 = HistoryStore(SqlDb(db2), slog)
         revisions2 = RevisionStore(fs, revisions_root2)
 
-
         history_entries1 = scan_and_update_history(
             fs, fs_root1, path_filter, hash_type,
             history_store1, peerid1, clock, slog)
@@ -271,14 +270,10 @@ if __name__ == "__main__":
             history_store2.add_entries([new_entry])
             slog.merged(action)
 
+        history_entries1 = filter_entries_by_path(history_entries1, path_filter)
         diff_fetch_merge(fs, fs_root1, history_entries1,
                          fs_root2, history_entries2, history_store2,
                          fetch, trash, merge, revisions2, slog)
-
-    # # *** use filter_entries_by_path
-    # def filter_entries_by_path(entries, path_filter):
-    #     return (entry for entry in entries
-    #             if not path_filter.ignore_path(entry.path))
 
 # class FileScanner(Actor):
 #     def __init__(self, fs):
