@@ -1,11 +1,13 @@
-ideas
-  make a "GroupPath" object of (group, path), which has .path and .full_path?
-
 next up
+  get a network up and running
+    login
+    send messages
+    ask for latest metadata
+    diff a diff of the metadata
+    fetch chunks
+    merge fetched chunks
+
   use deleteds_by_path to detect moves
-  make latus not a mess
-    group by merge action first
-      in order: copies, moves, meta_update, touches, 
   scanner calls merger.merge and fetcher.fetch(merger)
   fetch using chunk store
     implement fetch_chunks(entries)

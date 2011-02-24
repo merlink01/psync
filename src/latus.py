@@ -127,6 +127,7 @@ def merge(fs, source_root, source_entries,
     for action in updates:
         dest_path = verify_stat(dest_root, action.path, action.older)
         source_path = verify_stat(source_root, action.path, action.newer)
+        # *** do real fetching
         with slog.copying(source_path, dest_path):
             fs.copy_tree(source_path, dest_path)
             fs.touch(dest_path, action.newer.mtime)
