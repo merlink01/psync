@@ -81,7 +81,7 @@ def calculate_merge_actions(source_entries, dest_entries):
                 local_sources = dest_latests_by_hash[newer.hash]
                 yield MergeAction.copy(older, newer, local_sources)
             else:  # Not deleted, different content, and not available locally
-                yield MergeAction.update(None, newer)
+                yield MergeAction.update(older, newer)
         elif diff == HistoryDiffType.history_conflict:
             if older.deleted:
                 yield MergeAction.update_history(older, newer)

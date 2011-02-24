@@ -30,6 +30,8 @@ def scan_and_update_history(fs, fs_root, path_filter, hash_type,
             lambda fdiff: fdiff.type != FileDiffType.unchanged)
         ignored_fdiffs, changed_fdiffs = partition(changed_fdiffs,
             lambda fdiff: path_filter.ignore_path(fdiff.path))
+        #for fdiff in changed_fdiffs:
+        #    print fdiff
         slog.ignored_paths(fdiff.path for fdiff in ignored_fdiffs)
         rt.set_result({"changed diff stats": len(changed_fdiffs)})
 

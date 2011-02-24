@@ -9,7 +9,9 @@ from contextlib import contextmanager
 import hashlib
 import sqlite3
 
-from fs import FileSystem, PathFilter, join_paths, scan_and_update_history
+from fs import (FileSystem, PathFilter,
+                join_paths, mtimes_eq, scan_and_update_history)
+                
 from history import (HistoryStore, MergeAction, MergeActionType,
                      calculate_merge_actions)
 from util import Record, Clock, RunTime, SqlDb, groupby
@@ -57,7 +59,7 @@ class StatusLog(Record("clock")):
         yield
         print ("end copy", from_path, to_path)
 
-def merge(fs, souce_root, source_entries,
+def merge(fs, source_root, source_entries,
           dest_root, dest_entries, dest_store, slog):
     def filter_entries_by_path(entries, path_filter):
         return (entry for entry in entries
@@ -73,12 +75,14 @@ def merge(fs, souce_root, source_entries,
             (current_size, current_mtime) = fs.stat(full_path)
             if not (current_size == latest.size and
                     mtimes_eq(current_mtime, latest.mtime)):
-                raise Exception("file changed!", full_path)
+                raise Exception("file changed!", full_path,
+                                "expected", (latest.size, latest.mtime),
+                                "actual", (current_size, current_mtime))
 
         return full_path
         
     def finish_merge(action):
-        new_entry = newer.alter(utime=clock.unix(), peerid=peerid2)
+        new_entry = action.newer.alter(utime=clock.unix(), peerid=peerid2)
         dest_store.add_entries([new_entry])
         slog.merged(action)
 
@@ -89,13 +93,13 @@ def merge(fs, souce_root, source_entries,
 
     # *** use filter_entries_by_path
     # *** handle errors
-    # ***: futher optimize by moving instead of copying
+    # *** futher optimize by moving instead of copying
 
     # We must do copy actions first, in case we change the source
     # (especially if we delete in, as in the case of a move/rename.
     for action in copies:
-        source_latest = next(action.details)
-        source_path = verif_stat(dest_root, source_latest.path, source_latest)
+        source_latest = next(iter(action.details))
+        source_path = verify_stat(dest_root, source_latest.path, source_latest)
         dest_path = verify_stat(dest_root, action.path, action.older)
         with slog.copying(source_path, dest_path):
             fs.copy_tree(source_path, dest_path)
@@ -122,8 +126,7 @@ def merge(fs, souce_root, source_entries,
 
     for action in updates:
         dest_path = verify_stat(dest_root, action.path, action.older)
-        # ***: implement fetching
-        source_path = verif_stat(source_root, action.path, action.newer)
+        source_path = verify_stat(source_root, action.path, action.newer)
         with slog.copying(source_path, dest_path):
             fs.copy_tree(source_path, dest_path)
             fs.touch(dest_path, action.newer.mtime)
@@ -177,7 +180,7 @@ if __name__ == "__main__":
 
     fs.create_parent_dirs(db_path1)
     fs.create_parent_dirs(db_path2)
-    with sqlite3.connect(db_path1) as db1, sqlite3.connect(db_path1) as db2:
+    with sqlite3.connect(db_path1) as db1, sqlite3.connect(db_path2) as db2:
         history_store1 = HistoryStore(SqlDb(db1), slog)
         history_store2 = HistoryStore(SqlDb(db2), slog)
 
@@ -186,10 +189,10 @@ if __name__ == "__main__":
             history_store1, peerid1, clock, slog)
         history_entries2 = scan_and_update_history(
             fs, fs_root2, path_filter, hash_type,
-            history_store2,peerid2, clock, slog)
+            history_store2, peerid2, clock, slog)
 
         merge(fs, fs_root1, history_entries1,
-              fs_root2, history_entries2, history_store1, slog)
+              fs_root2, history_entries2, history_store2, slog)
 
 # class FileScanner(Actor):
 #     def __init__(self, fs):
