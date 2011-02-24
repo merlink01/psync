@@ -27,6 +27,7 @@ class HistoryStore(Record("db", "slog", "cache_by_peerid")):
 
     # return [entry]
     def read_entries(self, peerid):
+        # *** use peerid when selecting entries
         cached = setdefault(self.cache_by_peerid, peerid, lambda: \
                             HistoryCache(list(self.select_entries())))
         # copy list for thread safety

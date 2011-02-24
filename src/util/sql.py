@@ -1,5 +1,8 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
+def drop_table(table_name):
+    return "drop table {0}".format(table_name)
+
 def create_table(table_name, fields):
     return "create table {0} ({1})".format(
         table_name, ", ".join(fields))

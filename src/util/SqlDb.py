@@ -4,10 +4,18 @@ import sql
 from Record import Record
 
 class SqlDb(Record("db_conn")):
-    def create(self, name, field_types):
+    def drop(self, table_name):
         db_cursor = self.db_conn.cursor()
         try:
-            db_cursor.execute(sql.create_table(name, field_types))
+            db_cursor.execute(sql.drop_table(table_name))
+            self.db_conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Already dropped?
+
+    def create(self, table_name, field_types):
+        db_cursor = self.db_conn.cursor()
+        try:
+            db_cursor.execute(sql.create_table(table_name, field_types))
             self.db_conn.commit()
         except sqlite3.OperationalError:
             pass  # Already exists?

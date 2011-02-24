@@ -11,7 +11,7 @@ import sqlite3
 
 from fs import (FileSystem, PathFilter, RevisionStore,
                 join_paths, scan_and_update_history)
-from history import (HistoryStore, MergeAction, MergeActionType,
+from history import (HistoryStore, MergeAction, MergeActionType, MergeLog,
                      calculate_merge_actions)
 from util import Record, Clock, MockFuture, RunTime, SqlDb, groupby
                   
@@ -248,6 +248,7 @@ if __name__ == "__main__":
         history_store1 = HistoryStore(SqlDb(db1), slog)
         history_store2 = HistoryStore(SqlDb(db2), slog)
         revisions2 = RevisionStore(fs, revisions_root2)
+        merge_log2 = MergeLog(SqlDb(db2), clock)
 
         history_entries1 = scan_and_update_history(
             fs, fs_root1, path_filter, hash_type,
@@ -269,11 +270,16 @@ if __name__ == "__main__":
             new_entry = action.newer.alter(utime=clock.unix(), peerid=peerid2)
             history_store2.add_entries([new_entry])
             slog.merged(action)
+            merge_log2.add_action(action.set_newer(new_entry))
 
         history_entries1 = filter_entries_by_path(history_entries1, path_filter)
         diff_fetch_merge(fs, fs_root1, history_entries1,
                          fs_root2, history_entries2, history_store2,
                          fetch, trash, merge, revisions2, slog)
+
+        for log_entry in sorted(merge_log2.read_entries(peerid2)):
+            print log_entry
+
 
 # class FileScanner(Actor):
 #     def __init__(self, fs):

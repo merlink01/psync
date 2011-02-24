@@ -1,35 +1,38 @@
 next up
-  stuff from notes
-    add merge log table and insert them in merge()
-    move merge stuff into fs/merge.py?
-
-  big ***s in latus.py
-    handle merge errors, especially "created!" and "changed!"
-
   get a network up and running
+    try concurrence and gevent?
+
     login
-    send messages
+    send a custom message
+    receive custom messages
     ask for latest metadata
+    keep track of who is available
+    spawn a gevent "thread" to talk to each one until unavailable
+    p2p data (w/ SSL!)
     diff a diff of the metadata
     fetch chunks
     merge fetched chunks
 
+  big ****s
+    figure out groupid and security
+    get photos to cess
+
+  big ***s in latus.py
+    use peerid in HistoryStore select
+    handle merge errors, especially "created!" and "changed!"
+      if fs has changed, notify scanner
+      if no sources working, ???
+      if fs error moving file in place, LOG and leave chunks around
+    use peerid in mergelog select
+
   fetch using chunk store
+    fetch into "revisions" (once done)
+
     implement fetch_chunks(entries)
       there should be a queue of the diffs
 	* it should be keyed by the path so we aren't doing an "old action"
 	but, it should have a separate queue item for each chunk?
       uses a "coordinator" and FileChunkSource
-
-    implement merge_entries(entries):
-      touches file or moves file or copies file
-      gets temp file ready, moves current to trash, moves temp in place.
-      * inserts history entry with author_peerid and author_utime
-
-      failures:
-	if fs has changed, notify scanner
-	if no sources working, ???
-	if fs error moving file in place, LOG and leave chunks around
 
     implement FileChunkSource:
       read_chunk(chunkid) -> chunk_data
@@ -76,18 +79,6 @@ next up
 	else:  # even if in progress
 	  begin_fetch_write(chunkid)
 
-  add gropuid and security
-  **** get photos to Cess
-
-  cleanup?
-      fs: fs -> history
-        FileSystem
-      history: storing, comparing, reading history
-        split up scanning into getting + updating
-	  updating is in history
-	  getting is in fs
-      sync: getting remote history, fetching, merging
-      net: xmpp, nat punch, firewall, sockets
   more good notes
     status log (slog)
       put in db
@@ -112,38 +103,15 @@ next up
     implement trash, especially for updates
     figure out what to do with conflicts
 
-  check TODOs in files
-
   from notes
-    put trash and conflicting versions in the same place
-      that means just put conflicting files in trash?
-      also put prepared version in trash?
-      make the trash a ChunkSource?
-      is it a content-addressable-store where things can disappear?
-        but should we bother data de-dupping
-      for "revisions", you could just copy even before it's deleted locally
-      pros:
-        easy for user to see/delete/cleanup
-	pretty simple
-	covers trash, revisions, and conflicts
-	keeps us safe from remote deletes
-	keeps us safe from remote changes
     log tables
       runtimes: (action, start, duration, result)
       fetchqueue: (peerid, groupid, path, size, mtime, hash, utime)
         (just in memory?)
       fetchedchunks: hash, loc, size, utime
-      mergelog: (action=copy|moveto|movefrom|delete|create|replace,
-                 path, old_mtime, old_size, old_hash,
-		       new_mtime, new_size, new_hash,
-		       author_peerid, author_utime, other_path)
-    main tables
-      files
-      filechunks?
-    log files
-      untsable files
-      ignored files (but not every time!)
-      non-files (but not every time!)
+      more mergelog fields? old_mtime, old_size, old_hash,
+                            new_mtime, new_size, new_hash,
+			    author_utime
     watchers
       need coalesing, at least a little?
         to capture deleted+created=move
@@ -180,10 +148,9 @@ next up
       5. UI
       6. file watching
 
-  next steps
+  other ideas
     *** sync with iriver using it
       no hashing?
-      must have efficient moves and copies
 
     make FileWatcher
       pyinotify
@@ -209,7 +176,6 @@ next up
     
   latus.py improvements
     logging instead of printing
-    logging passed to FileSystem
     slow down disk IO to not clobber system when hashing a lot
   
   only 4 FS threads:
@@ -224,19 +190,11 @@ overall:
   p2p fs->fs 1-way sync for one user
   p2p fs<-fs 2-way sync
 
-xmpp:
-  send a custom message
-  receive custom messages
-  keep track of who is available
-  spawn a gevent "thread" to talk to each one until unavailable
-  p2p data (w/ SSL!)
-
 concurency:
   try gevent first
   then try concurrence
 
 improvements later
-  after fetching and merging
   commit in chunks of 1,000 so files start syncing even while
     scanning the first time (which will take a long time)
   add file watchers (win32 and inotify for now)
