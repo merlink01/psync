@@ -52,8 +52,8 @@ def has_matching_entry(history, entry):
     return any(entries_match(entry, entry2) for entry2 in history)
 
 
-MergeActionType = Enum("touch", "copy", "move", "delete", "update",
-                       "update_history", "conflict")
+MergeActionType = Enum("touch", "copy", "move", "delete", "undelete",
+                       "update", "update_history", "conflict")
 
 ## details is type-specific
 # for copy: source

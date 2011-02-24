@@ -62,6 +62,13 @@ class StatusLog(Record("clock")):
         yield
         print ("end trashing", entry.path, details)
 
+    @contextmanager
+    def untrashing(self, entry, dest_path):
+        details = entry.hash or (entry.size, entry.mtime)
+        print ("begin untrashing", dest_path, entry.path, details)
+        yield
+        print ("end untrashing", dest_path, entry.path, details)
+
 # fetch is entry -> future(fetched_path)
 # trash is (full_path, entry) -> ()
 # merge is action -> ()
@@ -70,7 +77,7 @@ class StatusLog(Record("clock")):
 # *** futher optimize by moving instead of copying
 def diff_fetch_merge(fs, source_root, source_entries,
                      dest_root, dest_entries, dest_store,
-                     fetch, trash, merge, slog):
+                     fetch, trash, merge, revisions, slog):
     def verify_stat(fs_root, path, latest):
         full_path = join_paths(fs_root, path)
 
@@ -87,7 +94,7 @@ def diff_fetch_merge(fs, source_root, source_entries,
         
     actions = calculate_merge_actions(source_entries, dest_entries)
     action_by_type = groupby(actions, MergeAction.get_type)
-    touches, copies, moves, deletes, updates, update_histories, conflicts = \
+    touches, copies, moves, deletes, undeletes, updates, updates_h, conflicts = \
              (action_by_type.get(type, []) for type in MergeActionType)
 
     # We must do copy actions first, in case we change the source
@@ -97,11 +104,19 @@ def diff_fetch_merge(fs, source_root, source_entries,
         source_path = verify_stat(dest_root, source_latest.path, source_latest)
         dest_path = verify_stat(dest_root, action.path, action.older)
         with slog.copying(source_path, dest_path):
-            fs.copy(source_path, dest_path)
-            fs.touch(dest_path, action.newer.mtime)
+            fs.copy(source_path, dest_path, mtime = action.newer.mtime)
         merge(action)
         
-    for action in update_histories:
+    # Since we have revisions, we can detect undeletes now.
+    real_updates = []
+    for action in updates:
+        if action.newer in revisions:
+            undeletes.append(action.set_type(MergeActionType.undelete))
+        else:
+            real_updates.append(action)
+    updates = real_updates
+
+    for action in updates_h:
         merge(action)
 
     for action in touches:
@@ -116,16 +131,22 @@ def diff_fetch_merge(fs, source_root, source_entries,
             trash(dest_path, action.older)
         merge(action)
 
+    for action in undeletes:
+        dest_path = verify_stat(dest_root, action.path, action.older)
+        trash(dest_path, action.older)
+        with slog.untrashing(action.newer, dest_path):
+            revisions.copy_out(action.newer, dest_path)
+        merge(action)
+
     for action in updates:
         def copy_and_merge(source_path_f):
             source_path = source_path_f.get()
             dest_path = verify_stat(dest_root, action.path, action.older)
             trash(dest_path, action.older)
             with slog.copying(source_path, dest_path):
-                fs.copy(source_path, dest_path)
-                fs.touch(dest_path, action.newer.mtime)
+                fs.copy(source_path, dest_path, mtime = action.newer.mtime)
             merge(action)
-        
+
         fetch(action.newer).then(copy_and_merge)
 
 
@@ -194,7 +215,7 @@ if __name__ == "__main__":
             return MockFuture(join_paths(fs_root1, entry.path))
 
         def trash(source_path, dest_entry):
-            if dest_entry not in revisions2:
+            if fs.exists(source_path):
                 with slog.trashing(dest_entry):
                     revisions2.move_in(source_path, dest_entry)
                     fs.remove_empty_parent_dirs(source_path)
@@ -206,7 +227,7 @@ if __name__ == "__main__":
 
         diff_fetch_merge(fs, fs_root1, history_entries1,
                          fs_root2, history_entries2, history_store2,
-                         fetch, trash, merge, slog)
+                         fetch, trash, merge, revisions2, slog)
 
     # # *** use filter_entries_by_path
     # def filter_entries_by_path(entries, path_filter):

@@ -16,7 +16,7 @@ class RevisionStore(Record("fs", "root")):
 
     def copy_out(self, source_entry, dest_path):
         source_path = self.get_full_revision_path(source_entry)
-        self.fs.copy(source_path, dest_path)
+        self.fs.copy(source_path, dest_path, mtime = source_entry.mtime)
 
     def get_full_revision_path(self, entry):
         return join_paths(self.root, self.get_revision_path(entry))
