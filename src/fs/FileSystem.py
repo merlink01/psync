@@ -31,11 +31,6 @@ PATH_SEP = "/"
 def join_paths(*paths):
     return PATH_SEP.join(paths)
 
-# returns whether mtimes are within 1 sec of each other, because
-# Windows shaves off a bit of mtime info.
-def mtimes_eq(mtime1, mtime2):
-    return abs(mtime1 - mtime2) < 2
-
 def parent_path(path):
     try:
         parent, child = path.rsplit(PATH_SEP, 1)
