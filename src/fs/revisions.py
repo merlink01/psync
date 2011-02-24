@@ -12,7 +12,7 @@ class RevisionStore(Record("fs", "root")):
 
     def move_in(self, source_path, dest_entry):
         dest_path = self.get_full_revision_path(dest_entry)
-        self.fs.move(source_path, dest_path)
+        self.fs.move(source_path, dest_path, mtime = dest_entry.mtime)
 
     def copy_out(self, source_entry, dest_path):
         source_path = self.get_full_revision_path(source_entry)

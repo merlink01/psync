@@ -80,7 +80,6 @@ class StatusLog(Record("clock")):
 # merge is action -> ()
 # *** handle errors
 # *** better created! and changed! errors
-# *** futher optimize by moving instead of copying
 def diff_fetch_merge(fs, source_root, source_entries,
                      dest_root, dest_entries, dest_store,
                      fetch, trash, merge, revisions, slog):
@@ -100,6 +99,21 @@ def diff_fetch_merge(fs, source_root, source_entries,
     action_by_type = groupby(actions, MergeAction.get_type)
     touches, copies, moves, deletes, undeletes, updates, updates_h, conflicts = \
              (action_by_type.get(type, []) for type in MergeActionType)
+
+    # We're going to simply resolve conflicts by letting the newer
+    # mtime win.  Since a deleted mtime is 0, a non-deleted always
+    # wins over a deleted.  If the remove end is older, we copy it to
+    # "revisions", so that if later it "wins", it's a local copy, and
+    # so a user could potentially look at it.
+    for action in conflicts:
+        older, newer = action.older, action.newer
+        # When mtimes are equal, use utime, size, and hash as tie-breakers.
+        if (newer.mtime, newer.utime, newer.size, newer.hash) \
+               > (older.mtime, older.utime, older.size, older.hash):
+            updates.append(action)
+        else:
+            # TODO: Make sure fetching goes into "revisions".
+            fetch(action.newer)
 
     # If a copy also has a matching delete, make it as "move".
     deletes_by_hash = groupby(deletes, lambda delete: delete.older.hash)
@@ -178,6 +192,8 @@ def diff_fetch_merge(fs, source_root, source_entries,
             merge(action)
 
         fetch(action.newer).then(copy_and_merge)
+    
+            
 
 
 # python latus.py ../test1 pthatcher@gmail.com/test1 ../test2 pthatcher@gmail.com/test2
