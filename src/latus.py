@@ -14,7 +14,7 @@ from fs import (FileSystem, PathFilter,
                 
 from history import (HistoryStore, MergeAction, MergeActionType,
                      calculate_merge_actions)
-from util import Record, Clock, RunTime, SqlDb, groupby
+from util import Record, Clock, MockFuture, RunTime, SqlDb, groupby
                   
 class StatusLog(Record("clock")):
     def time(self, name):
@@ -59,12 +59,13 @@ class StatusLog(Record("clock")):
         yield
         print ("end copy", from_path, to_path)
 
-def merge(fs, source_root, source_entries,
-          dest_root, dest_entries, dest_store, slog):
-    def filter_entries_by_path(entries, path_filter):
-        return (entry for entry in entries
-                if not path_filter.ignore_path(entry.path))
-
+# fetch must be entry -> future(fetched_path)
+# merge must be entry -> future()
+# *** handle errors
+# *** futher optimize by moving instead of copying
+def diff_fetch_merge(fs, source_root, source_entries,
+                     dest_root, dest_entries, dest_store,
+                     fetch, merge, slog):
     def verify_stat(fs_root, path, latest):
         full_path = join_paths(fs_root, path)
 
@@ -81,19 +82,10 @@ def merge(fs, source_root, source_entries,
 
         return full_path
         
-    def finish_merge(action):
-        new_entry = action.newer.alter(utime=clock.unix(), peerid=peerid2)
-        dest_store.add_entries([new_entry])
-        slog.merged(action)
-
     actions = calculate_merge_actions(source_entries, dest_entries)
     action_by_type = groupby(actions, MergeAction.get_type)
     touches, copies, moves, deletes, updates, update_histories, conflicts = \
              (action_by_type.get(type, []) for type in MergeActionType)
-
-    # *** use filter_entries_by_path
-    # *** handle errors
-    # *** futher optimize by moving instead of copying
 
     # We must do copy actions first, in case we change the source
     # (especially if we delete in, as in the case of a move/rename.
@@ -104,15 +96,15 @@ def merge(fs, source_root, source_entries,
         with slog.copying(source_path, dest_path):
             fs.copy_tree(source_path, dest_path)
             fs.touch(dest_path, action.newer.mtime)
-        finish_merge(action)
+        merge(action)
         
     for action in update_histories:
-        finish_merge(action)
+        merge(action)
 
     for action in touches:
         dest_path = verify_stat(dest_root, action.path, action.older)
         fs.touch(dest_path, action.newer.mtime)
-        finish_merge(action)
+        merge(action)
 
     for action in deletes:
         dest_path = join_paths(dest_root, action.path)
@@ -122,16 +114,19 @@ def merge(fs, source_root, source_entries,
             slog.moved_to_trash(dest_path, action.path)
         else:
             slog.already_move_to_trash(dest_path)
-        finish_merge(action)
+        merge(action)
 
     for action in updates:
         dest_path = verify_stat(dest_root, action.path, action.older)
-        source_path = verify_stat(source_root, action.path, action.newer)
-        # *** do real fetching
-        with slog.copying(source_path, dest_path):
-            fs.copy_tree(source_path, dest_path)
-            fs.touch(dest_path, action.newer.mtime)
-        finish_merge(action)
+
+        def copy_and_merge(source_path_f):
+            source_path = source_path_f.get()
+            with slog.copying(source_path, dest_path):
+                fs.copy_tree(source_path, dest_path)
+                fs.touch(dest_path, action.newer.mtime)
+            merge(action)
+        
+        fetch(action.newer).then(copy_and_merge)
 
 
 # python latus.py ../test1 pthatcher@gmail.com/test1 ../test2 pthatcher@gmail.com/test2
@@ -192,8 +187,22 @@ if __name__ == "__main__":
             fs, fs_root2, path_filter, hash_type,
             history_store2, peerid2, clock, slog)
 
-        merge(fs, fs_root1, history_entries1,
-              fs_root2, history_entries2, history_store2, slog)
+        def fetch(entry):
+            return MockFuture(join_paths(fs_root1, entry.path))
+
+        def merge(action):
+            new_entry = action.newer.alter(utime=clock.unix(), peerid=peerid2)
+            history_store2.add_entries([new_entry])
+            slog.merged(action)
+
+        diff_fetch_merge(fs, fs_root1, history_entries1,
+                         fs_root2, history_entries2, history_store2,
+                         fetch, merge, slog)
+
+    # # *** use filter_entries_by_path
+    # def filter_entries_by_path(entries, path_filter):
+    #     return (entry for entry in entries
+    #             if not path_filter.ignore_path(entry.path))
 
 # class FileScanner(Actor):
 #     def __init__(self, fs):
