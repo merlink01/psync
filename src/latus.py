@@ -113,7 +113,7 @@ def diff_fetch_merge(source_entries, source_groupids,
 
         if latest is None or latest.deleted:
             if fs.exists(full_path):
-                raise Exception("file created", path)
+                raise Exception("file created", full_path)
         else:
             if not fs.stat_eq(full_path, latest.size, latest.mtime):
                 raise Exception("file changed!", full_path)
@@ -265,7 +265,7 @@ if __name__ == "__main__":
                               fs_root1, "Conference Music")})
     groupids2 = Groupids({"group1": fs_root2,
                           "group1/cmusic": os.path.join(
-                              fs_root1, "cmusic")})
+                              fs_root2, "cmusic")})
                           
 
     fs.create_parent_dirs(db_path1)
