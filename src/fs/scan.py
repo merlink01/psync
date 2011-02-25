@@ -89,9 +89,8 @@ def diff_file_stats(file_stats, history_entries, groupids, slog):
                     yield FileDiff.created(gpath, rpath, size, mtime, None)
                 else:
                     latest = history.latest
-                    print (gpath, latest)
                     if latest.size != size or not mtimes_eq(latest.mtime, mtime):
-                        FileDiff.changed(gpath, rpath, size, mtime, None)
+                        yield FileDiff.changed(gpath, rpath, size, mtime, None)
                     else:
                         pass # unchanged
 
