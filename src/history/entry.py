@@ -24,8 +24,17 @@ class HistoryEntry(Record(*TABLE_FIELDS)):
     def deleted(entry):
         return entry.mtime == DELETED_MTIME
 
-def group_history_by_path(entries):
-    return groupby(entries, operator.itemgetter(2), into=History)
+    def get_gpath(entry):
+        return (entry.groupid, entry.path)
+
+    @property
+    def gpath(entry):
+        return (entry.groupid, entry.path)
+
+
+def group_history_by_gpath(entries):
+    # TODO: Make faster (give entry a cached gpath)?
+    return groupby(entries, HistoryEntry.get_gpath, into=History)
 
 def group_history_by_peerid(entries):
     return groupby(entries, operator.itemgetter(1), into=History)

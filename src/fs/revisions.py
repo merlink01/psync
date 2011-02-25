@@ -21,6 +21,7 @@ class RevisionStore(Record("fs", "root")):
     def get_full_revision_path(self, entry):
         return join_paths(self.root, self.get_revision_path(entry))
 
+    # *** doesn't work with groupids any more!
     def get_revision_path(self, entry):
         path, ext = os.path.splitext(entry.path)
         if entry.hash:

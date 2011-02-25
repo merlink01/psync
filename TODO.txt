@@ -1,4 +1,13 @@
 next up
+  group scanning
+    *** handle unknown groupid
+    implement reading of .latusconf files
+    implement parent/child groups
+    make sure we can still find stuff in revisions even if we move
+      group folders around (path would change).
+    enhance undeletes by looking by hash through any gpath and if it's
+      in the revisions.
+         
   get a network up and running
     try concurrence and gevent?
 

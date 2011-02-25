@@ -12,10 +12,16 @@ from util import Record
 DELETED_SIZE = 0
 DELETED_MTIME = 0
 
-class FileStat(Record("path", "size", "mtime")):
+# Also known as an "rpath".
+class RootedPath(Record("root", "rel")):
+    @property
+    def full(self):
+        return join_paths(*self)
+
+class FileStat(Record("rpath", "size", "mtime")):
     @classmethod
-    def from_deleted(cls, path):
-        return cls.new(path, DELETED_SIZE, DELETED_MTIME)
+    def from_deleted(cls, rpath):
+        return cls.new(rpath, DELETED_SIZE, DELETED_MTIME)
 
     @property
     def deleted(entry):
@@ -80,6 +86,7 @@ class FileSystem(Record("slog", "path_encoder")):
     NEW_WRITE_MODE      = "wb"
     EXISTING_WRITE_MODE = "r+b"
 
+    # slog needs to have 
     def __new__(cls, slog):
         return cls.new(slog, PathEncoder())
 
@@ -107,8 +114,7 @@ class FileSystem(Record("slog", "path_encoder")):
             return False
         return True
 
-
-    # yields (path, size, mtime) relative to root
+    # yields FileStat, with same "root mark" rules as self.list(...)
     #
     # On my 2008 Macbook, reads about 10,000 files/sec when doing small
     # groups (5,000 files), and 4,000 files/sec when doing large
@@ -119,51 +125,63 @@ class FileSystem(Record("slog", "path_encoder")):
     #
     # On my faster linux desktop machine, it's about 30,000 files/sec
     # when cached, even for 200,00 files, which is a big improvement.
-    def list_stats(fs, root, names_to_ignore = frozenset()):
-        return fs.stats(root,
-                        fs.list(root, names_to_ignore = names_to_ignore))
+    def list_stats(fs, root, root_mark = None, names_to_ignore = frozenset()):
+        return fs.stats(fs.list(
+            root, root_mark = root_mark, names_to_ignore = names_to_ignore))
 
-    # yields a path for each file found relative to the root
-    def list(fs, root, names_to_ignore = frozenset()):
+    # yields a RootedPath for each file found in the root.  The intial
+    # root is the given root.  Deeper in, if there is a "root_mark"
+    # file in a directory, that directory becomes a new root.
+    def list(fs, root, root_mark = None, names_to_ignore = frozenset()):
         listdir = os.listdir
         join = os.path.join
         isdir = os.path.isdir
         islink = os.path.islink
 
-        def walk(encoded_parent):
+        def decode(encoded_path):
+            try:
+                return fs.decode_path(encoded_path)
+            except Exception as err:
+                fs.slog.path_error("Could not decode file path {0}: {1}"
+                                   .format(repr(encoded_path)), err)
+                return None
+
+        # We pass root around so that we only have to decode it once.
+        def walk(root, encoded_root, encoded_parent):
             child_names = listdir(encoded_parent)
-            for child_name in child_names:
-                if child_name not in names_to_ignore:
-                    encoded_path = join(encoded_parent, child_name)
-                    if isdir(encoded_path):
-                        if not islink(encoded_path):
-                            for child in walk(encoded_path):
-                                yield child
-                    else:
-                        yield encoded_path
+            if root_mark is not None:
+                if root_mark in child_names:
+                    encoded_root = encoded_parent
+                    root = decode(encoded_root)
+
+            # If decoding root fails, no point in traversing any futher.
+            if root is not None:
+                for child_name in child_names:
+                    if child_name not in names_to_ignore:
+                        encoded_full = join(encoded_parent, child_name)
+                        if isdir(encoded_full):
+                            if not islink(encoded_full):
+                                for child in \
+                                        walk(root, encoded_root, encoded_full):
+                                    yield child
+                        else:
+                            rel = decode(encoded_full[len(encoded_root)+1:])
+                            if rel:
+                                yield RootedPath(root, rel)
 
         encoded_root = fs.encode_path(root)
-        root_len = len(os.path.join(encoded_root, ""))
-        for encoded_path in walk(encoded_root):
-            encoded_relative_path = encoded_path[root_len:]
-            try:
-                relative_path = fs.decode_path(encoded_relative_path)
-            except Exception as err:
-                fs.slog.path_error("Could not decode file path {0}: {1}".format(
-                    repr(encoded_relative_path), err))
-            else:
-                yield relative_path
+        return walk(root, encoded_root, encoded_root)
 
-    # yields FileStat relative to root for each path in paths
-    def stats(fs, root, paths):
+    # yields FileStats
+    def stats(fs, rpaths):
         stat = os.stat
-        for path in paths:
+        for rpath in rpaths:
             try:
-                encoded_path = fs.encode_path(join_paths(root, path))
+                encoded_path = fs.encode_path(rpath.full)
                 stats = stat(encoded_path)
                 size = stats[STAT_SIZE_INDEX]
                 mtime = stats[STAT_MTIME_INDEX]
-                yield FileStat(path, size, mtime)
+                yield FileStat(rpath, size, mtime)
             except OSError:
                 pass  # Probably a link
 

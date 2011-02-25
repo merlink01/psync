@@ -7,6 +7,7 @@ TABLE_NAME = "files"
 ## entries when getting latest by using max().
 TABLE_FIELD_TYPES = ["utime integer",
                      "peerid varchar",
+                     "groupid varchar",
                      "path varchar",
                      "size integer",
                      "mtime integer",

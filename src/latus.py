@@ -13,7 +13,7 @@ from fs import (FileSystem, PathFilter, RevisionStore,
                 join_paths, scan_and_update_history)
 from history import (HistoryStore, MergeAction, MergeActionType, MergeLog,
                      calculate_merge_actions)
-from util import Record, Clock, MockFuture, RunTime, SqlDb, groupby
+from util import Record, Clock, MockFuture, RunTime, SqlDb, groupby, flip_dict
                   
 class StatusLog(Record("clock")):
     def time(self, name):
@@ -26,9 +26,15 @@ class StatusLog(Record("clock")):
     def path_error(self, err):
         print ("path error", err)
 
-    def ignored_paths(self, paths):
-        for path in paths:
-            print ("ignored", path)
+    def ignored_rpaths(self, rpaths):
+        for rpath in rpaths:
+            print ("ignored", rpath)
+
+    def ignored_rpath_without_groupid(self, gpath):
+        print ("ignore rpath without groupid", gpath)
+
+    def ignored_gpath_without_root(self, gpath):
+        print ("ignore gpath without root", gpath)
 
     def not_a_file(self, path):
         print ("not a file", path)
@@ -75,15 +81,35 @@ class StatusLog(Record("clock")):
         yield
         print ("end untrashing", dest_path, entry.path, details)
 
+# *** implement reading .latusconf
+class Groupids(Record("root_by_groupid", "groupid_by_root")):
+    def __new__(cls, root_by_groupid):
+        groupid_by_root = flip_dict(root_by_groupid)
+        return cls.new(root_by_groupid, groupid_by_root)
+
+    def to_root(self, groupid):
+        return self.root_by_groupid.get(groupid, None)
+
+    def from_root(self, root):
+        return self.groupid_by_root.get(root, None)
+
+
 # fetch is entry -> future(fetched_path)
 # trash is (full_path, entry) -> ()
 # merge is action -> ()
-# *** handle errors, especially created! and changed! errors
-def diff_fetch_merge(fs, source_root, source_entries,
-                     dest_root, dest_entries, dest_store,
-                     fetch, trash, merge, revisions, slog):
-    def verify_stat(fs_root, path, latest):
-        full_path = join_paths(fs_root, path)
+# *** handle errors, especially unknown groupid, created! and changed! errors
+def diff_fetch_merge(source_entries, source_groupids,
+                     dest_entries, dest_groupids, dest_store,
+                     fetch, trash, merge, revisions, fs, slog):
+    def get_dest_path(gpath):
+        (groupid, path) = gpath
+        root = dest_groupids.to_root(groupid)
+        if root is None:
+            raise Exception("unknown groupid!", groupid)
+        return join_paths(root, path)
+
+    def verify_stat(gpath, latest):
+        full_path = get_dest_path(gpath)
 
         if latest is None or latest.deleted:
             if fs.exists(full_path):
@@ -94,9 +120,9 @@ def diff_fetch_merge(fs, source_root, source_entries,
 
         return full_path
         
-    actions = calculate_merge_actions(source_entries, dest_entries)
+    actions = calculate_merge_actions(source_entries, dest_entries, revisions)
     action_by_type = groupby(actions, MergeAction.get_type)
-    touches, copies, moves, deletes, undeletes, updates, updates_h, conflicts = \
+    touches, copies, moves, deletes, undeletes, updates, uphists, conflicts = \
              (action_by_type.get(type, []) for type in MergeActionType)
 
     # We're going to simply resolve conflicts by letting the newer
@@ -115,76 +141,67 @@ def diff_fetch_merge(fs, source_root, source_entries,
             fetch(action.newer)
 
     # If a copy also has a matching delete, make it as "move".
-    deletes_by_hash = groupby(deletes, lambda delete: delete.older.hash)
+    deletes_by_hash = groupby(deletes, \
+            lambda delete: delete.older.hash if delete.older else None)
     real_copies = []
     for action in copies:
-        deletes = deletes_by_hash.get(action.newer.hash, [])
-        if action.newer.hash and deletes:
+        deletes_of_hash = deletes_by_hash.get(action.newer.hash, [])
+        if action.newer.hash and deletes_of_hash:
             # Pop so we only match a given delete once.  But we
             # leave the deleted in the deleteds so that it's put
             # in the history and merge data, but we don't put it
             # in the revisions.
-            delete = deletes.pop()
+            delete = deletes_of_hash.pop()
             moves.append(action.alter(
                 type = MergeActionType.move, details = delete.older))
         else:
             real_copies.append(action)
     copies = real_copies
 
-    # Since we have revisions, we can also detect updates which are
-    # really "undeletes".
-    real_updates = []
-    for action in updates:
-        if action.newer in revisions:
-            undeletes.append(action.set_type(MergeActionType.undelete))
-        else:
-            real_updates.append(action)
-    updates = real_updates
-
-
     # We must do copy and move actions first, in case we change the souce.
     for action in copies:
         source_latest = next(iter(action.details))
-        source_path = verify_stat(dest_root, source_latest.path, source_latest)
-        dest_path = verify_stat(dest_root, action.path, action.older)
+        source_path = verify_stat(source_latest.gpath, source_latest)
+        dest_path = verify_stat(action.gpath, action.older)
         with slog.copying(source_path, dest_path):
             fs.copy(source_path, dest_path, mtime = action.newer.mtime)
         merge(action)
         
     for action in moves:
         source_latest = action.details
-        source_path = verify_stat(dest_root, source_latest.path, source_latest)
-        dest_path = verify_stat(dest_root, action.path, action.older)
+        source_path = verify_stat(source_latest.gpath, source_latest)
+        dest_path = verify_stat(action.gpath, action.older)
         with slog.moving(source_path, dest_path):
             fs.move(source_path, dest_path, mtime = action.newer.mtime)
         merge(action)
 
-    for action in updates_h:
+    for action in uphists:
         merge(action)
 
     for action in touches:
-        dest_path = verify_stat(dest_root, action.path, action.older)
+        dest_path = verify_stat(action.gpath, action.older)
         fs.touch(dest_path, action.newer.mtime)
         merge(action)
 
     for action in deletes:
-        dest_path = join_paths(dest_root, action.path)
+        dest_path = get_dest_path(action.gpath)
         if fs.exists(dest_path):
-            dest_path = verify_stat(dest_root, action.path, action.older)
+            dest_path = verify_stat(action.gpath, action.older)
             trash(dest_path, action.older)
         merge(action)
 
     for action in undeletes:
-        dest_path = verify_stat(dest_root, action.path, action.older)
+        rev_entry = action.details
+        dest_path = verify_stat(action.gpath, action.older)
         trash(dest_path, action.older)
-        with slog.untrashing(action.newer, dest_path):
-            revisions.copy_out(action.newer, dest_path)
+        with slog.untrashing(rev_entry, dest_path):
+            revisions.copy_out(rev_entry, dest_path)
         merge(action)
 
     for action in updates:
         def copy_and_merge(source_path_f):
             source_path = source_path_f.get()
-            dest_path = verify_stat(dest_root, action.path, action.older)
+            dest_path = verify_stat(action.gpath, action.older)
             trash(dest_path, action.older)
             with slog.copying(source_path, dest_path):
                 fs.copy(source_path, dest_path, mtime = action.newer.mtime)
@@ -238,9 +255,18 @@ if __name__ == "__main__":
     path_filter = PathFilter(globs_to_ignore, names_to_ignore)   
 
     fs_root1, peerid1, fs_root2, peerid2 = sys.argv[1:5]
-    db_path1 = os.path.join(fs_root1, ".latus/db")
-    db_path2 = os.path.join(fs_root2, ".latus/db")
+    db_path1 = os.path.join(fs_root1, ".latus/latus.db")
+    db_path2 = os.path.join(fs_root2, ".latus/latus.db")
     revisions_root2 = os.path.join(fs_root2, ".latus/revisions/")
+    root_mark = ".latusconf"
+
+    groupids1 = Groupids({"group1": fs_root1,
+                          "group1/cmusic": os.path.join(
+                              fs_root1, "Conference Music")})
+    groupids2 = Groupids({"group1": fs_root2,
+                          "group1/cmusic": os.path.join(
+                              fs_root1, "cmusic")})
+                          
 
     fs.create_parent_dirs(db_path1)
     fs.create_parent_dirs(db_path2)
@@ -251,14 +277,15 @@ if __name__ == "__main__":
         merge_log2 = MergeLog(SqlDb(db2), clock)
 
         history_entries1 = scan_and_update_history(
-            fs, fs_root1, path_filter, hash_type,
-            history_store1, peerid1, clock, slog)
+            fs, fs_root1, root_mark, path_filter, hash_type,
+            history_store1, peerid1, groupids1, clock, slog)
         history_entries2 = scan_and_update_history(
-            fs, fs_root2, path_filter, hash_type,
-            history_store2, peerid2, clock, slog)
+            fs, fs_root2, root_mark, path_filter, hash_type,
+            history_store2, peerid2, groupids2, clock, slog)
 
         def fetch(entry):
-            return MockFuture(join_paths(fs_root1, entry.path))
+            root = groupids1.to_root(entry.groupid)
+            return MockFuture(join_paths(root, entry.path))
 
         def trash(source_path, dest_entry):
             if fs.exists(source_path):
@@ -273,12 +300,12 @@ if __name__ == "__main__":
             merge_log2.add_action(action.set_newer(new_entry))
 
         history_entries1 = filter_entries_by_path(history_entries1, path_filter)
-        diff_fetch_merge(fs, fs_root1, history_entries1,
-                         fs_root2, history_entries2, history_store2,
-                         fetch, trash, merge, revisions2, slog)
+        diff_fetch_merge(history_entries1, groupids1,
+                         history_entries2, groupids2, history_store2,
+                         fetch, trash, merge, revisions2, fs, slog)
 
-        for log_entry in sorted(merge_log2.read_entries(peerid2)):
-            print log_entry
+        # for log_entry in sorted(merge_log2.read_entries(peerid2)):
+        #    print log_entry
 
 
 # class FileScanner(Actor):

@@ -1,140 +1,134 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
-from history import HistoryEntry, group_history_by_path
-from FileSystem import DELETED_MTIME, DELETED_SIZE, mtimes_eq
+from history import HistoryEntry, group_history_by_gpath
+from FileSystem import DELETED_MTIME, DELETED_SIZE, mtimes_eq, RootedPath
 from fs import FileStat, join_paths
 from util import Record, Enum, partition, type_constructors
 
-FileDiffType = Enum("unchanged", "created", "changed", "deleted")
+FileDiffType = Enum("created", "changed", "deleted")
 
-# So you can say FileDiff.created(path, size, mtime), etc.
 @type_constructors(FileDiffType)
-class FileDiff(Record("type", "path", "size", "mtime")):
+class FileDiff(Record("type", "gpath", "rpath", "size", "mtime", "hash")):
     @property
     def was_deleted(entry):
         return entry.mtime == DELETED_MTIME
 
-def scan_and_update_history(fs, fs_root, path_filter, hash_type,
-                            history_store, peerid, clock, slog):
+# groupids must have .to_root and .from_root
+def scan_and_update_history(fs, fs_root, root_mark, path_filter, hash_type,
+                            history_store, peerid, groupids, clock, slog):
     with slog.time("read history") as rt:
         history_entries = history_store.read_entries(peerid)
         rt.set_result({"history entries": len(history_entries)})
 
     with slog.time("scan files") as rt:
-        file_stats = list(fs.list_stats(fs_root, path_filter.names_to_ignore))
+        file_stats = list(fs.list_stats(
+            fs_root, root_mark, names_to_ignore = path_filter.names_to_ignore))
         rt.set_result({"file stats": len(file_stats)})
 
     with slog.time("diff file stats") as rt:
-        fdiffs = diff_file_stats(file_stats, history_entries, slog)
-        changed_fdiffs, unchanged_fdiffs = partition(fdiffs,
-            lambda fdiff: fdiff.type != FileDiffType.unchanged)
-        ignored_fdiffs, changed_fdiffs = partition(changed_fdiffs,
-            lambda fdiff: path_filter.ignore_path(fdiff.path))
-        #for fdiff in changed_fdiffs:
-        #    print fdiff
-        slog.ignored_paths(fdiff.path for fdiff in ignored_fdiffs)
-        rt.set_result({"changed diff stats": len(changed_fdiffs)})
+        fdiffs = diff_file_stats(file_stats, history_entries, groupids, slog)
+        ignored_fdiffs, fdiffs = partition(fdiffs,
+            lambda fdiff: path_filter.ignore_path(fdiff.rpath.full))
+        slog.ignored_rpaths(fdiff.rpath for fdiff in ignored_fdiffs)
+        rt.set_result({"file diffs": len(fdiffs)})
 
     with slog.time("hash files") as rt:
-        new_history_entries = list(
-            hash_diff_stats(fs, fs_root, changed_fdiffs, hash_type,
-                            peerid, clock, slog))
-        rt.set_result({"new history entries": len(new_history_entries)})
+        hashed_fdiffs = list(hash_file_diffs(fs, fdiffs, hash_type, slog))
+        rt.set_result({"hashed file diffs": len(hashed_fdiffs)})
 
     with slog.time("rescan files") as rt:
-        rescan_stats = list(fs.stats(fs_root, \
-            (fdiff.path for fdiff in changed_fdiffs)))
+        rescan_stats = list(fs.stats(
+            (fdiff.rpath for fdiff in hashed_fdiffs)))
         rt.set_result({"rescanned file stats": len(rescan_stats)})
 
     with slog.time("check change stability") as rt:
-        rescan_stats_by_path = dict((path, (size, mtime))
-                                    for path, size, mtime in file_stats)
+        rescan_stats_by_rpath = dict((rpath, (size, mtime))
+                                     for rpath, size, mtime in file_stats)
 
-        def is_stable(entry):
-            (rescan_size, rescan_mtime) = \
-                rescan_stats_by_path.get(entry.path,
-                                         (DELETED_SIZE, DELETED_MTIME))
-            return entry.size == rescan_size and \
-                   mtimes_eq(entry.mtime, rescan_mtime)
+        def is_stable(fdiff):
+            (rescan_size, rescan_mtime) = rescan_stats_by_rpath.get(
+                fdiff.rpath, (DELETED_SIZE, DELETED_MTIME))
+            return fdiff.size == rescan_size and \
+                   mtimes_eq(fdiff.mtime, rescan_mtime)
 
-        stable_entries, unstable_entries = \
-            partition(new_history_entries, is_stable)
-        rt.set_result({"stable entries": len(stable_entries),
-                       "unstable entries": len(unstable_entries)})
+        stable_fdiffs, unstable_fdiffs = partition(hashed_fdiffs, is_stable)
+        rt.set_result({"stable file diffs": len(stable_fdiffs),
+                       "unstable file diffs": len(unstable_fdiffs)})
 
     with slog.time("insert new history entries"):
-        if stable_entries:
-            history_store.add_entries(stable_entries)
+        new_entries = list(new_history_entries_from_file_diffs(
+            stable_fdiffs, peerid, clock))
+        if new_entries:
+            history_store.add_entries(new_entries)
 
     with slog.time("reread history") as rt:
         history_entries = history_store.read_entries(peerid)
-        history_by_path = group_history_by_path(history_entries)
+        history_by_gpath = group_history_by_gpath(history_entries)
         total_size = sum(history.latest.size for history in
-                         history_by_path.itervalues())
-        rt.set_result({"path count": len(history_by_path),
+                         history_by_gpath.itervalues())
+        rt.set_result({"path count": len(history_by_gpath),
                        "total size": total_size})
 
     return history_entries
 
 # yields FileDiff
-def diff_file_stats(file_stats, history_entries, slog):
+def diff_file_stats(file_stats, history_entries, groupids, slog):
     with slog.time("group history by path") as rt:
-        history_by_path = group_history_by_path(history_entries)
-        rt.set_result({"path count": len(history_by_path)})
-        
+        history_by_gpath = group_history_by_gpath(history_entries)
+        rt.set_result({"path count": len(history_by_gpath)})
+
     with slog.time("compare to latest history"):
-        for fstat in file_stats:
-            history = history_by_path.get(fstat.path)
-            latest = history.latest if history is not None else None
-            if latest is None:
-                yield FileDiff.created(*fstat)
-            elif latest.size == fstat.size \
-                    and mtimes_eq(latest.mtime, fstat.mtime):
-                yield FileDiff.unchanged(*fstat)
+        for (rpath, size, mtime) in file_stats:
+            groupid = groupids.from_root(rpath.root)
+            if groupid is None:
+                slog.ignored_rpath_without_groupid(rpath)
             else:
-                yield FileDiff.changed(*fstat)
+                gpath = (groupid, rpath.rel)
+                history = history_by_gpath.pop(gpath, None)
+                if history is None:
+                    yield FileDiff.created(gpath, rpath, size, mtime, None)
+                else:
+                    latest = history.latest
+                    if latest.size != size or not mtimes_eq(latest.mtime, mtime):
+                        FileDiff.changed(gpath, rpath, size, mtime, None)
+                    else:
+                        pass # unchanged
 
     with slog.time("find missing paths"):
-        missing_paths = (frozenset(history_by_path.iterkeys())
-                         - frozenset(fstat.path for fstat in file_stats))
-        for missing_path in missing_paths:
-            # TODO: this could probably be more efficient
-            latest = history_by_path[missing_path].latest
-            if not latest.deleted:
-                yield FileDiff.deleted(*FileStat.from_deleted(missing_path))
+        for missing_gpath, missing_history in history_by_gpath.iteritems():
+            if not missing_history.latest.deleted:
+                (groupid, path) = missing_gpath
+                root = groupids.to_root(groupid)
+                if root is None:
+                    slog.ignored_gpath_without_root(missing_gpath)
+                else:
+                    yield FileDiff.deleted(missing_gpath, RootedPath(root, path),
+                                           DELETED_SIZE, DELETED_MTIME, "")
 
-# yields new HistoryEntry
-# TODO: Rename to "get FileHistoryEntries" or something like that.
-def hash_diff_stats(fs, fs_root, fdiffs, hash_type, peerid, clock, slog):
+# yields new HistoryEntry if hash is successfull.
+def hash_file_diffs(fs, fdiffs, hash_type, slog):
+    for fdiff in fdiffs:
+        if fdiff.was_deleted:
+            yield fdiff
+        else:
+            full_path = fdiff.rpath.full
+            if not fs.isfile(full_path):
+                slog.not_a_file(full_path)
+            try:
+                # TODO: Put in nice inner-file hashing updates.
+                with slog.hashing(full_path):
+                    hash = fs.hash(full_path, hash_type)
+
+                yield fdiff.set_hash(hash)
+            except IOError as err:
+                slog.could_not_hash(full_path, err)
+
+def new_history_entries_from_file_diffs(fdiffs, peerid, clock):
     utime = int(clock.unix())
     author_peerid = peerid
     author_utime = utime
-
     for fdiff in fdiffs:
-        if fdiff.was_deleted:
-            hash = ""
-        else:
-            hash = hash_path(fs, fs_root, fdiff.path, hash_type, slog)
-            
-        if hash is not None:
-            yield HistoryEntry(
-                utime, peerid, fdiff.path,
-                fdiff.size, fdiff.mtime, hash.encode("hex"),
-                author_peerid, author_utime, str(fdiff.type))
-
-def hash_path(fs, fs_root, path, hash_type, slog):
-    full_path = join_paths(fs_root, path)
-
-    if not fs.isfile(full_path):
-        slog.not_a_file(full_path)
-        return None
-
-    try:
-        # TODO: Put in nice inner-file hashing updates.
-        with slog.hashing(full_path):
-            hash = fs.hash(full_path, hash_type)
-        return hash
-    except IOError as err:
-        slog.could_not_hash(full_path, err)
-        return None
-
+        groupid, path = fdiff.gpath
+        yield HistoryEntry(utime, peerid, groupid, path,
+                           fdiff.size, fdiff.mtime, fdiff.hash.encode("hex"),
+                           author_peerid, author_utime, str(fdiff.type))
