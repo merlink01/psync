@@ -1,8 +1,8 @@
 next up
   group scanning
-    *** handle unknown groupid
     implement reading of .latusconf files
     implement parent/child groups
+    implement groupid security
          
   get a network up and running
     try concurrence and gevent?
@@ -19,16 +19,15 @@ next up
     merge fetched chunks
 
   big ****s
-    figure out groupid and security
     get photos to cess
 
   big ***s in latus.py
-    use peerid in HistoryStore select
+    use peerid in HistoryStore select!
+    use peerid in mergelog select
     handle merge errors, especially "created!" and "changed!"
       if fs has changed, notify scanner
       if no sources working, ???
       if fs error moving file in place, LOG and leave chunks around
-    use peerid in mergelog select
 
   fetch using chunk store
     fetch into "revisions" (once done)
