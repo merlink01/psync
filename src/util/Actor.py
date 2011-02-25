@@ -3,7 +3,7 @@
 import logging
 import Queue
 
-from util import Record, decorator
+from util import Record, decorator, start_thread
 
 class ActorStopped(Exception):
     pass
@@ -49,28 +49,3 @@ def async(method, self, *args, **kargs):
     future = Future()
     self.send((method.__name__, args, kargs, future))
     return future
-    
-class ActorProxy:
-    async_names = []
-    sync_names = []
-
-    def __init__(self, fs):
-        for async_name in self.async_names:
-            setattr(self, async_name,
-                    async(unbind_method(getattr(fs, async_name))))
-        for sync_name in self.sync_names:
-            setattr(self, sync_name,
-                    unbind_method(getattr(fs, async_name)))
-
-def start_thread(func, name = None, isdaemon = True):
-    thread = threading.Thread(target = func)
-    thread.setName(name)
-    thread.setDaemon(True)
-    thread.start()
-    return thread
-    
-def unbind_method(method):
-    def unbound_method(self, *args, **kargs):
-        method(*args, **kargs)
-    return unbound_method
-

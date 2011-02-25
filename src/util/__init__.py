@@ -1,7 +1,8 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
+import threading
 import time
-
+    
 import sql
 
 from decorators import decorator, decorator_with_args, into
@@ -67,4 +68,12 @@ def type_constructors(types):
         return cls
 
     return add_type_constructors
+
+def start_thread(func, name = None, isdaemon = True):
+    thread = threading.Thread(target = func)
+    thread.setName(name)
+    thread.setDaemon(True)
+    thread.start()
+    return thread
+
 
