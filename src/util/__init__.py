@@ -17,6 +17,9 @@ class Clock:
     def unix(_):
         return int(time.time())
 
+    def unix_fine(_):
+        return time.time()
+
 def groupby(vals, key = None, into = None):
     group_by_key = {}
     for val in vals:
@@ -43,6 +46,9 @@ def partition(vals, predicate):
     for val in vals:
         (trues if predicate(val) else falses).append(val)
     return trues, falses
+
+def flip_dict(dct):
+    return dict((v, k) for (k, v) in dct.iteritems())
 
 # If you have an enum of types and a record where the first value is
 # the type, this will let you say Record.type1(arg2, arg3).  It sounds

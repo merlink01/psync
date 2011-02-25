@@ -18,14 +18,14 @@ class RunTime:
         self.result = None
 
     def __enter__(self):
-        self.before = self.clock.unix()
+        self.before = self.clock.unix_fine()
         return self
 
     def set_result(self, result):
         self.result = result
 
     def __exit__(self, *args):
-        self.after = self.clock.unix()
+        self.after = self.clock.unix_fine()
         self.logger(self)
 
     @property
