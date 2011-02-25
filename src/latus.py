@@ -209,9 +209,10 @@ def diff_fetch_merge(source_entries, source_groupids,
 
         fetch(action.newer).then(copy_and_merge)
     
-def filter_entries_by_path(entries, path_filter):
+def filter_entries_by_gpath(entries, groupids, path_filter):
     return (entry for entry in entries
-            if not path_filter.ignore_path(entry.path))
+            if (groupids.to_root(entry.groupid) is not None and
+                not path_filter.ignore_path(entry.path)))
 
 # python latus.py ../test1 pthatcher@gmail.com/test1 ../test2 pthatcher@gmail.com/test2
 if __name__ == "__main__":
@@ -266,7 +267,6 @@ if __name__ == "__main__":
     groupids2 = Groupids({"group1": fs_root2,
                           "group1/cmusic": os.path.join(
                               fs_root2, "cmusic")})
-                          
 
     fs.create_parent_dirs(db_path1)
     fs.create_parent_dirs(db_path2)
@@ -299,7 +299,8 @@ if __name__ == "__main__":
             slog.merged(action)
             merge_log2.add_action(action.set_newer(new_entry))
 
-        history_entries1 = filter_entries_by_path(history_entries1, path_filter)
+        history_entries1 = filter_entries_by_gpath(
+            history_entries1, groupids2, path_filter)
         diff_fetch_merge(history_entries1, groupids1,
                          history_entries2, groupids2, history_store2,
                          fetch, trash, merge, revisions2, fs, slog)
