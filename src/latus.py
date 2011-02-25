@@ -1,5 +1,6 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
+import os
 import sys
 if sys.version_info < (2, 6):
     raise UnsupportedPythonVersionError(sys.version)
@@ -215,14 +216,69 @@ def filter_entries_by_gpath(entries, groupids, path_filter):
                 not path_filter.ignore_path(entry.path)))
 
 # python latus.py ../test1 pthatcher@gmail.com/test1 ../test2 pthatcher@gmail.com/test2
-if __name__ == "__main__":
-    import os
-
+def main_sync_two(args, conf):
     clock = Clock()
     slog = StatusLog(clock)
     fs = FileSystem(slog)
 
+    fs_root1, peerid1, fs_root2, peerid2 = args
+    db_path1 = os.path.join(fs_root1, conf.db_path)
+    db_path2 = os.path.join(fs_root2, conf.db_path)
+    revisions_root2 = os.path.join(fs_root2, conf.revisions_path)
+
+    groupids1 = Groupids({"group1": fs_root1,
+                          "group1/cmusic": os.path.join(
+                              fs_root1, "Conference Music")})
+    groupids2 = Groupids({"group1": fs_root2,
+                          "group1/cmusic": os.path.join(
+                              fs_root2, "cmusic")})
+
+    fs.create_parent_dirs(db_path1)
+    fs.create_parent_dirs(db_path2)
+    with sqlite3.connect(db_path1) as db1, sqlite3.connect(db_path2) as db2:
+        history_store1 = HistoryStore(SqlDb(db1), slog)
+        history_store2 = HistoryStore(SqlDb(db2), slog)
+        revisions2 = RevisionStore(fs, revisions_root2)
+        merge_log2 = MergeLog(SqlDb(db2), clock)
+
+        history_entries1 = scan_and_update_history(
+            fs, fs_root1, conf.root_mark, conf.path_filter, conf.hash_type,
+            history_store1, peerid1, groupids1, clock, slog)
+        history_entries2 = scan_and_update_history(
+            fs, fs_root2, conf.root_mark, conf.path_filter, conf.hash_type,
+            history_store2, peerid2, groupids2, clock, slog)
+
+        def fetch(entry):
+            root = groupids1.to_root(entry.groupid)
+            return MockFuture(join_paths(root, entry.path))
+
+        def trash(source_path, dest_entry):
+            if fs.exists(source_path):
+                with slog.trashing(dest_entry):
+                    revisions2.move_in(source_path, dest_entry)
+                    fs.remove_empty_parent_dirs(source_path)
+
+        def merge(action):
+            new_entry = action.newer.alter(utime=clock.unix(), peerid=peerid2)
+            history_store2.add_entries([new_entry])
+            slog.merged(action)
+            merge_log2.add_action(action.set_newer(new_entry))
+
+        history_entries1 = filter_entries_by_gpath(
+            history_entries1, groupids2, conf.path_filter)
+        diff_fetch_merge(history_entries1, groupids1,
+                         history_entries2, groupids2, history_store2,
+                         fetch, trash, merge, revisions2, fs, slog)
+
+        # for log_entry in sorted(merge_log2.read_entries(peerid2)):
+        #    print log_entry
+
+class Config:
     hash_type = hashlib.sha1
+
+    root_mark = ".latusconf"
+    db_path = ".latus/latus.db"
+    revisions_path = ".latus/revisions/"
 
     names_to_ignore = frozenset([
         # don't scan our selves!
@@ -252,58 +308,8 @@ if __name__ == "__main__":
 
          # emacs temp files, which we probably never care to sync
          "*~", "*~$", "~*.tmp"]
- 
+
     path_filter = PathFilter(globs_to_ignore, names_to_ignore)   
 
-    fs_root1, peerid1, fs_root2, peerid2 = sys.argv[1:5]
-    db_path1 = os.path.join(fs_root1, ".latus/latus.db")
-    db_path2 = os.path.join(fs_root2, ".latus/latus.db")
-    revisions_root2 = os.path.join(fs_root2, ".latus/revisions/")
-    root_mark = ".latusconf"
-
-    groupids1 = Groupids({"group1": fs_root1,
-                          "group1/cmusic": os.path.join(
-                              fs_root1, "Conference Music")})
-    groupids2 = Groupids({"group1": fs_root2,
-                          "group1/cmusic": os.path.join(
-                              fs_root2, "cmusic")})
-
-    fs.create_parent_dirs(db_path1)
-    fs.create_parent_dirs(db_path2)
-    with sqlite3.connect(db_path1) as db1, sqlite3.connect(db_path2) as db2:
-        history_store1 = HistoryStore(SqlDb(db1), slog)
-        history_store2 = HistoryStore(SqlDb(db2), slog)
-        revisions2 = RevisionStore(fs, revisions_root2)
-        merge_log2 = MergeLog(SqlDb(db2), clock)
-
-        history_entries1 = scan_and_update_history(
-            fs, fs_root1, root_mark, path_filter, hash_type,
-            history_store1, peerid1, groupids1, clock, slog)
-        history_entries2 = scan_and_update_history(
-            fs, fs_root2, root_mark, path_filter, hash_type,
-            history_store2, peerid2, groupids2, clock, slog)
-
-        def fetch(entry):
-            root = groupids1.to_root(entry.groupid)
-            return MockFuture(join_paths(root, entry.path))
-
-        def trash(source_path, dest_entry):
-            if fs.exists(source_path):
-                with slog.trashing(dest_entry):
-                    revisions2.move_in(source_path, dest_entry)
-                    fs.remove_empty_parent_dirs(source_path)
-
-        def merge(action):
-            new_entry = action.newer.alter(utime=clock.unix(), peerid=peerid2)
-            history_store2.add_entries([new_entry])
-            slog.merged(action)
-            merge_log2.add_action(action.set_newer(new_entry))
-
-        history_entries1 = filter_entries_by_gpath(
-            history_entries1, groupids2, path_filter)
-        diff_fetch_merge(history_entries1, groupids1,
-                         history_entries2, groupids2, history_store2,
-                         fetch, trash, merge, revisions2, fs, slog)
-
-        # for log_entry in sorted(merge_log2.read_entries(peerid2)):
-        #    print log_entry
+if __name__ == "__main__":
+    main_sync_two(sys.argv[1:], Config)
