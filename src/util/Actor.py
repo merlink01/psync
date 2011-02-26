@@ -1,51 +1,56 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
-import logging
+import sys
 import Queue
 
-from util import Record, decorator, start_thread
+from util import Record, Future
 
 class ActorStopped(Exception):
     pass
 
-class Actor:
-    def __init__(self, name = None):
-        self.name = name or self.__class__.__name__
-        self.thread = None
-        self.mailbox = Queue.Queue()
-        self.stopped = None
+class ActorCall(Record("name", "args", "kargs", "future")):
+    pass
 
-    def start(self):
-        self.thread = start_thread(self.run, self.name)
-        
-    def stop(self):
+class Actor:
+    def __init__(self, name, slog):
+        self.name = name
+        self.slog = slog
+        self.mailbox = Queue.Queue()
         self.stopped = Future()
+        self.finished = Future()
 
     def send(self, call):
         self.mailbox.put(call, block = False)
 
     def run(self):
         try:
-            while not self.stopped:
+            while not self.stopped.is_set():
                 try:
-                    name, args, kargs, future = \
-                          self.mailbox.get(block = True, timeout = 0.1)
+                    call = self.mailbox.get(block = True, timeout = 0.1)
                 except Queue.Empty:
                     pass  # Try reading again.
                 else:
-                    try:
-                        future.call(lambda: getattr(self, name)(*args, **kargs))
-                    except Exception as err:
-                        logging.warning("Ignoring error in {0}: {1}".format(
-                            self.name, err))
+                    method = getattr(self, call.name)
+                    method = getattr(method, "original", method)
+                    call.future.call(method, self, *call.args, **call.kargs)
         except ActorStopped:
             self.stopped.set()
         except Exception as err:
-            logging.error("Died from error in {0}: {1}".format(
-                self.name, err))
+            _, _, trace = sys.exc_info()
+            self.slog.thread_died(self.name, err, trace)
+        finally:
+            self.finished.set()
 
-@decorator
-def async(method, self, *args, **kargs):
-    future = Future()
-    self.send((method.__name__, args, kargs, future))
-    return future
+    def stop(self):
+        self.stopped.set()
+        return self.finished
+
+def async(method):
+    def async_method(self, *args, **kargs):
+        future = Future()
+        self.send(ActorCall(method.__name__, args, kargs, future))
+        return future
+
+    async_method.original = method
+    async_method.__name__ = "async_" + method.__name__
+    return async_method

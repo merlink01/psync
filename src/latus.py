@@ -1,6 +1,5 @@
 # Copyright 2006 Uberan - All Rights Reserved
 
-import os
 import sys
 if sys.version_info < (2, 6):
     raise UnsupportedPythonVersionError(sys.version)
@@ -8,15 +7,22 @@ if sys.version_info < (2, 6):
 from contextlib import contextmanager
 
 import hashlib
+import os
 import sqlite3
+import traceback
 
 from fs import (FileSystem, PathFilter, RevisionStore,
                 join_paths, scan_and_update_history)
 from history import (HistoryStore, MergeAction, MergeActionType, MergeLog,
                      calculate_merge_actions)
-from util import Record, Clock, MockFuture, RunTime, SqlDb, groupby, flip_dict
+from util import (Record, Clock, MockFuture, RunTime, SqlDb,
+                  groupby, flip_dict, start_thread)
                   
 class StatusLog(Record("clock")):
+    def thread_died(self, name, err, trace):
+        print ("thread died", name, err)
+        traceback.print_exception(type(err), err, trace)
+
     def time(self, name):
         return RunTime(name, self.clock, self.log_run_time)
 
@@ -312,4 +318,54 @@ class Config:
     path_filter = PathFilter(globs_to_ignore, names_to_ignore)   
 
 if __name__ == "__main__":
-    main_sync_two(sys.argv[1:], Config)
+    #main_sync_two(sys.argv[1:], Config)
+
+    from util import Actor, async, AllFuture
+
+    class ThreadedActorStarter:
+        def __init__(self):
+            self.actors = []
+
+        def start(self, actor):
+            start_thread(actor.run, actor.name)
+            self.actors.append(actor)
+            return actor
+
+        def stop_all(self):
+            return AllFuture([actor.stop() for actor in self.actors])
+
+    class Peer(Actor):
+        def __init__(self, peerid, slog):
+            self.peerid = peerid
+            Actor.__init__(self, repr(peerid), slog)
+
+        def __repr__(self):
+            return "{0.__class__.__name__}({0.peerid})".format(self)
+
+        @async
+        def scan(self):
+            print ("scan", self.peerid)
+
+        @async
+        def read_entries(self):
+            return [(self.peerid, "entry1")]
+
+        @async
+        def read_chunk(self, hash, loc, size):
+            return ("chunk", self.peerid, hash, loc, size)
+
+    clock = Clock()
+    slog = StatusLog(clock)
+    starter = ThreadedActorStarter()
+    peer1 = starter.start(Peer("pthatcher@gmail.com/test1", slog))
+    peer2 = starter.start(Peer("pthatcher@gmail.com/test2", slog))
+    
+    peer1.scan()
+    peer2.scan()
+    chunk1_f = peer1.read_chunk("hash", 0, 100)
+    print peer2.read_chunk("hash", 100, 100).wait(0.1)
+    print chunk1_f.wait(0.1)
+
+    #import code
+    #code.interact("Debug Console", local = {"peer1" : peer1, "peer2": peer2})
+    starter.stop_all().wait(0.2)
