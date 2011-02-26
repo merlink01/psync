@@ -1,21 +1,39 @@
+    # class ActorProxy(Actor):
+    #     def __init__(self, name, slog, sync_names = [], async_names = []):
+    #         for async_name in self.sync_names:
+    #             setattr(self, async_name,
+    #                     async(unbind_method(getattr(fs, async_name))))
+    #         for sync_name in self.async_names:
+    #             setattr(self, sync_name,
+    #                     unbind_method(getattr(fs, async_name)))
+    #         Actor.__init__(self, name, slog)
 
 
-# class ActorProxy:
-#     async_names = []
-#     sync_names = []
+    # def unbind_method(method):
+    #     def unbound_method(self, *args, **kargs):
+    #         method(*args, **kargs)
+    #     return unbound_method
 
-#     def __init__(self, fs):
-#         for async_name in self.async_names:
-#             setattr(self, async_name,
-#                     async(unbind_method(getattr(fs, async_name))))
-#         for sync_name in self.sync_names:
-#             setattr(self, sync_name,
-#                     unbind_method(getattr(fs, async_name)))
 
-# def unbind_method(method):
-#     def unbound_method(self, *args, **kargs):
-#         method(*args, **kargs)
-#     return unbound_method
+
+
+    # class ActorProxy(Actor):
+    #     def __init__(self, name, obj, slog):
+    #         for attr_name in dir(obj):
+    #             attr = getattr(obj, attr_name)
+    #             if inspect.ismethod(attr) and not attr_name.startswith("__"):
+    #                 print attr
+    #                 method = attr
+    #                 def proxy_method(*args, **kargs):
+    #                     return method(self, *args, **kargs)
+    #                 proxy_method.__name__ = method.__name__
+    #                 setattr(self, attr_name, async(proxy_method))
+    #         Actor.__init__(self, name, slog)
+
+    #     #def handle_call(self, call):
+    #     #    sync_method = getattr(self, call.name).sync
+    #     #    sync_method(self, *call.args, **call.kargs)
+
 
 # class FileScanner(Actor):
 #     def __init__(self, fs):

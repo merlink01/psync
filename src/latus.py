@@ -18,75 +18,84 @@ from history import (HistoryStore, MergeAction, MergeActionType, MergeLog,
 from util import (Record, Clock, MockFuture, RunTime, SqlDb,
                   groupby, flip_dict, start_thread)
                   
-class StatusLog(Record("clock")):
-    def thread_died(self, name, err, trace):
-        print ("thread died", name, err)
-        traceback.print_exception(type(err), err, trace)
+class StatusLog:
+    def __init__(self, clock):
+        self.clock = clock
+        
+    def log(self, *args):
+        print args
 
     def time(self, name):
         return RunTime(name, self.clock, self.log_run_time)
 
     def log_run_time(self, rt):
-        print ("timed", "{0:.2f} secs".format(rt.elapsed),
-               rt.name, rt.result)
+        self.log("timed", "{0:.2f} secs".format(rt.elapsed),
+                 rt.name, rt.result)
+
+    def actor_died(self, name, err, trace):
+        self.log("actor died", name, err)
+        traceback.print_exception(type(err), err, trace)
+
+    def actor_finished(self, name):
+        self.log("actor finished", name)
 
     def path_error(self, err):
-        print ("path error", err)
+        self.log("path error", err)
 
     def ignored_rpaths(self, rpaths):
         for rpath in rpaths:
-            print ("ignored", rpath)
+            self.log("ignored", rpath)
 
     def ignored_rpath_without_groupid(self, gpath):
-        print ("ignore rpath without groupid", gpath)
+        self.log("ignore rpath without groupid", gpath)
 
     def ignored_gpath_without_root(self, gpath):
-        print ("ignore gpath without root", gpath)
+        self.log("ignore gpath without root", gpath)
 
     def not_a_file(self, path):
-        print ("not a file", path)
+        self.log("not a file", path)
 
     def could_not_hash(self, path):
-        print ("could not hash", path)
+        self.log("could not hash", path)
 
     def inserted_history(self, entries):
         for entry in entries:
-            print ("inserted", entry)
+            self.log("inserted", entry)
 
     def merged(self, action):
-        print ("merged", action)
+        self.log("merged", action)
 
     @contextmanager
     def hashing(self, path):
-        print ("begin hashing", path)
+        self.log("begin hashing", path)
         yield
-        print ("end hashing", path)
+        self.log("end hashing", path)
 
     @contextmanager
     def copying(self, from_path, to_path):
-        print ("begin copy", from_path, to_path)
+        self.log("begin copy", from_path, to_path)
         yield
-        print ("end copy", from_path, to_path)
+        self.log("end copy", from_path, to_path)
 
     @contextmanager
     def moving(self, from_path, to_path):
-        print ("begin move", from_path, to_path)
+        self.log("begin move", from_path, to_path)
         yield
-        print ("end move", from_path, to_path)
+        self.log("end move", from_path, to_path)
 
     @contextmanager
     def trashing(self, entry):
         details = entry.hash or (entry.size, entry.mtime)
-        print ("begin trashing", entry.path, details)
+        self.log("begin trashing", entry.path, details)
         yield
-        print ("end trashing", entry.path, details)
+        self.log("end trashing", entry.path, details)
 
     @contextmanager
     def untrashing(self, entry, dest_path):
         details = entry.hash or (entry.size, entry.mtime)
-        print ("begin untrashing", dest_path, entry.path, details)
+        self.log("begin untrashing", dest_path, entry.path, details)
         yield
-        print ("end untrashing", dest_path, entry.path, details)
+        self.log("end untrashing", dest_path, entry.path, details)
 
 # *** implement reading .latusconf
 class Groupids(Record("root_by_groupid", "groupid_by_root")):
@@ -206,15 +215,13 @@ def diff_fetch_merge(source_entries, source_groupids,
         merge(action)
 
     for action in updates:
-        def copy_and_merge(source_path_f):
-            source_path = source_path_f.get()
-            dest_path = verify_stat(action.gpath, action.older)
-            trash(dest_path, action.older)
-            with slog.copying(source_path, dest_path):
-                fs.copy(source_path, dest_path, mtime = action.newer.mtime)
-            merge(action)
-
-        fetch(action.newer).then(copy_and_merge)
+        fetch(action.newer).wait()  # ***: More proper fetching.
+        source_path = source_path_f.get()
+        dest_path = verify_stat(action.gpath, action.older)
+        trash(dest_path, action.older)
+        with slog.copying(source_path, dest_path):
+            fs.copy(source_path, dest_path, mtime = action.newer.mtime)
+        merge(action)
     
 def filter_entries_by_gpath(entries, groupids, path_filter):
     return (entry for entry in entries
@@ -334,6 +341,15 @@ if __name__ == "__main__":
         def stop_all(self):
             return AllFuture([actor.stop() for actor in self.actors])
 
+    class StatusLogActor(Actor, StatusLog):
+        def __init__(self, name, clock):
+            StatusLog.__init__(self, clock)
+            Actor.__init__(self, name, self)
+
+        @async
+        def log(self, *args):
+            print args
+
     class Peer(Actor):
         def __init__(self, peerid, slog):
             self.peerid = peerid
@@ -344,7 +360,7 @@ if __name__ == "__main__":
 
         @async
         def scan(self):
-            print ("scan", self.peerid)
+            self.slog.log("scan", self.peerid)
 
         @async
         def read_entries(self):
@@ -354,9 +370,13 @@ if __name__ == "__main__":
         def read_chunk(self, hash, loc, size):
             return ("chunk", self.peerid, hash, loc, size)
 
+        def finish(self):
+            self.slog.log("finish", self.peerid)
+
     clock = Clock()
-    slog = StatusLog(clock)
     starter = ThreadedActorStarter()
+    #slog = StatusLog(clock)
+    slog = starter.start(StatusLogActor("StatusLog", clock))
     peer1 = starter.start(Peer("pthatcher@gmail.com/test1", slog))
     peer2 = starter.start(Peer("pthatcher@gmail.com/test2", slog))
     

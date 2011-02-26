@@ -1,4 +1,5 @@
 import sys
+import time
 from threading import Event
 
 from Record import Record
@@ -13,9 +14,6 @@ class MockFuture(Record("val")):
     def wait(self):
         return self.val
 
-    def then(self, listener):
-        listener(self)
-    
 class Future:
     def __init__(self):
         self.event = Event()
@@ -40,11 +38,6 @@ class Future:
     def wait(self, timeout = None):
         self.event.wait(timeout)
         return self.get()
-
-    # listener is future -> ()
-    def then(self, listener):
-        self.listeners.append(listener)
-
 
     def set(self, value = None):
         self.value = value
@@ -73,26 +66,23 @@ class Future:
 class AllFuture:
     def __init__(self, futures):
         self.futures = futures
-        self.vals = None
-        self.listeners = []
 
     def is_set(self):
-        return self.vals is not None
+        return all(future.is_set() for future in self.futures)
 
     def get(self):
-        return self.vals
+        if is_set(self):
+            return [future.get() for future in future]
+        else:
+            return None
 
     def wait(self, timeout = None):
-        vals = []
-        for future in self.futures:
-            val = future.wait(timeout)
-            if not future.is_set():
-                return None
-            else:
-                vals.append(val)
-        self.vals = val
-        return vals
+        if timeout is None:
+            return [future.wait(timeout) for future in self.futures]
+        else:
+            deadline = time.time() + timeout
+            def time_until_deadline():
+                return max(0, deadline, time.time())
 
-    def then(self, listener):
-        raise NotImplementedError
-
+            return [future.wait(time_until_deadline())
+                    for future in self.futures]

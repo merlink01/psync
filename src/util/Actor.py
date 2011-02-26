@@ -25,25 +25,38 @@ class Actor:
     def run(self):
         try:
             while not self.stopped.is_set():
-                try:
-                    call = self.mailbox.get(block = True, timeout = 0.1)
-                except Queue.Empty:
-                    pass  # Try reading again.
-                else:
-                    method = getattr(self, call.name)
-                    call.future.call(method.sync,
-                                     self, *call.args, **call.kargs)
+                call = self.wait_for_call()
+                if call is not None:
+                    self.handle_call(call)
         except ActorStopped:
             self.stopped.set()
         except Exception as err:
             _, _, trace = sys.exc_info()
-            self.slog.thread_died(self.name, err, trace)
+            self.slog.actor_died(self.name, err, trace)
         finally:
+            self.finish()
             self.finished.set()
+            self.slog.actor_finished(self.name)
 
     def stop(self):
         self.stopped.set()
         return self.finished
+
+    # Good to override for periodic events.
+    def wait_for_call(self, timeout = 0.1):
+        try:
+            return self.mailbox.get(block = True, timeout = 0.1)
+        except Queue.Empty:
+            return None
+
+    def handle_call(self, call):
+        sync_method = getattr(self, call.name).sync
+        call.future.call(sync_method, self, *call.args, **call.kargs)
+        # TODO: Better error message if not an async method.
+
+    # Good to override for cleanup.
+    def finish(self):
+        pass
 
 def async(method):
     def async_method(self, *args, **kargs):
