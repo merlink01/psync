@@ -31,8 +31,8 @@ class Actor:
                     pass  # Try reading again.
                 else:
                     method = getattr(self, call.name)
-                    method = getattr(method, "original", method)
-                    call.future.call(method, self, *call.args, **call.kargs)
+                    call.future.call(method.sync,
+                                     self, *call.args, **call.kargs)
         except ActorStopped:
             self.stopped.set()
         except Exception as err:
@@ -51,6 +51,6 @@ def async(method):
         self.send(ActorCall(method.__name__, args, kargs, future))
         return future
 
-    async_method.original = method
+    async_method.sync = method
     async_method.__name__ = "async_" + method.__name__
     return async_method
