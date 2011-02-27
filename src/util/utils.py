@@ -60,8 +60,9 @@ def type_constructors(types):
 
 def start_thread(func, name = None, isdaemon = True):
     thread = threading.Thread(target = func)
-    thread.setName(name)
-    thread.setDaemon(True)
+    if name is not None:
+        thread.setName(name)
+    thread.setDaemon(isdaemon)
     thread.start()
     return thread
 

@@ -1,4 +1,13 @@
 next up
+  different threads
+    one thread reading/writing sockets, using asyncore
+    one thread listening for incoming connections
+    one thread connecting to peers (try every 5 min or so)
+    one thread reading/write xmpp socket (it's special)
+    one thread fs scans and history updates
+    one thread doing remote updates/scans/diffs/merging
+      a separate thread for fetching?
+
   group scanning
     implement reading of .latusconf files
     implement parent/child groups
