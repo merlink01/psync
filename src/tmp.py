@@ -1,3 +1,13 @@
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("password")
+args = parser.parse_args()
+
+import logging
+logging.basicConfig(level = logging.INFO,
+                    format = "%(levelname)-8s %(message)s")
+
     # class ActorProxy(Actor):
     #     def __init__(self, name, slog, sync_names = [], async_names = []):
     #         for async_name in self.sync_names:
@@ -113,3 +123,29 @@
 #  crypto keys?
 # TODO: debug consoloe: code.interact(
 #  "ShareEver Debugging Console", local = {"peer" : peer}
+
+# XMPP stuff
+    # Interesting plugins:
+    # xep-009: RPC
+    # xep-030: Service Discovery
+    # xep-050: Ad-Hoc commands
+    # xep-060: PubSub
+    # xep-085: Chat state
+    # xep-199: Ping
+    # client.registerPlugin("xep_0030")  # Service Discovery
+    # client.registerPlugin("xep_0004")  # Data Forms
+    # client.registerPlugin("xep_0060")  # PubSub
+    # client.registerPlugin("xep_0199")  # XMPP Ping
+
+    # To make your own plugin, you much make a stream event handler like this:
+    # from https://github.com/fritzy/SleekXMPP/wiki/Event-Handlers
+    # self.registerHandler(
+    #     Callback('Example Handler',
+    #              MatchXPath('{%s}iq/{%s}task' % (self.default_ns, Task.namespace)),
+    #              self.handle_task))
+
+    # presence/subscription handled like so:
+    # https://github.com/fritzy/SleekXMPP/wiki/Stanzas:-Presence
+
+    # creating our own stanzas:
+    # https://github.com/fritzy/SleekXMPP/wiki/Stanza-Objects

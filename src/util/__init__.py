@@ -12,5 +12,5 @@ from Future import Future, MockFuture, AllFuture
 from RunTimer import RunTimer, RunTime
 from SqlDb import SqlDb
 
-from Actor import Actor, async
+from Actor import Actor, async, async_result
 

@@ -1,80 +1,63 @@
 import sleekxmpp
 
-import argparse
-import logging
-import code
+# TODO:
+#  listen for presence of others, and create a PeerServer to handle messages
+#    or delete a PeerServer when the peer goes away
+#  listen for messages and route them to the correct PeerServer
+#  listen for our own disconnect and try and reconnect
 
-logging.basicConfig(level = logging.INFO,
-                    format = "%(levelname)-8s %(message)s")
+class XmppHandler:
+    def on_start(self, event):
+        client.getRoster()
+        client.sendPresence()
 
-parser = argparse.ArgumentParser()
-parser.add_argument("password")
-args = parser.parse_args()
+        print ("start roster",)
+        for name, details in client.roster.viewitems():
+            print "{0:30}: {1[name]}, {1[presence]}".format(name, details)
+    
 
+if __name__ == "__main__"
+    import sys
+    password = sys.argv[0]
 
-jid = "pthatcher@gmail.com/02044160"
-# hack for typing password
-password = "".join(chr(ord(c)+1) for c in args.password)
-client = sleekxmpp.ClientXMPP(jid, password)
-# Interesting plugins:
-# xep-009: RPC
-# xep-030: Service Discovery
-# xep-050: Ad-Hoc commands
-# xep-060: PubSub
-# xep-085: Chat state
-# xep-199: Ping
-client.registerPlugin("xep_0030")  # Service Discovery
-client.registerPlugin("xep_0004")  # Data Forms
-client.registerPlugin("xep_0060")  # PubSub
-client.registerPlugin("xep_0199")  # XMPP Ping
+    jid = "pthatcher@gmail.com/02044160"
+    # hack for typing password
+    password = "".join(chr(ord(c)+1) for c in password)
 
-# To make your own plugin, you much make a stream event handler like this:
-# from https://github.com/fritzy/SleekXMPP/wiki/Event-Handlers
-# self.registerHandler(
-#     Callback('Example Handler',
-#              MatchXPath('{%s}iq/{%s}task' % (self.default_ns, Task.namespace)),
-#              self.handle_task))
+    client = sleekxmpp.ClientXMPP(jid, password)
+    # client.getRoster fetches the roster, which is then in client.roster
+    # as {name: {name: ..., presence: ...}}
+    # client.sendPresence sends our presence (should be done at start
 
-# presence/subscription handled like so:
-# https://github.com/fritzy/SleekXMPP/wiki/Stanzas:-Presence
+    def on_start(event):
 
-# creating our own stanzas:
-# https://github.com/fritzy/SleekXMPP/wiki/Stanza-Objects
+    client.add_event_handler("session_start", on_start)
 
-def on_start(event):
-  client.getRoster()
-  #print ("roster", client.roster)
-  for name, details in client.roster.viewitems():
-    print "{0:30}: {1[name]}, {1[presence]}".format(name, details)
-  client.sendPresence()
+    def on_changed_status(presence):
+      print repr(presence)
 
-def on_message(msg):
-  # check type
-  # can do msg.reply().send() ?
-  print repr(msg)
+    client.add_event_handler("on_changed_status", on_message)
 
-# Events: connected, changed_status(presence), disconnected,
-# failed_auth, got_online(presence), got_offline(presence),
-# on_message, presence_available, presence_error,
-# presence_unavailable, roster_update, session_start
-client.add_event_handler("session_start", on_start)
-client.add_event_handler("message", on_message)
+    def on_message(msg):
+      # check type
+      # can do msg.reply().send() ?
+      print repr(msg)
 
-if client.connect(("talk.google.com", 5222)):
-  print "logged in"
-  #client_job = gevent.spawn(client.process)
-  #gevent.sleep(1)
-  client.process(threaded=True)
-  code.interact("Debug (use cient)", local = {"client": client})
-  # client has:
-  # .address (server address)
-  # .boundjid
-  #   .bare
-  #   .full
-  # .roster
-else:
-  print "Couldn't connect"
+    client.add_event_handler("message", on_message)
 
-                           
-# Need to login, get peer info, and get peer info of others
-#  get all full JIDs of buddies?
+    # Other events: connected, changed_status(presence), disconnected,
+    # failed_auth, got_online(presence), got_offline(presence),
+    # on_message, presence_available, presence_error,
+    # presence_unavailable, roster_update, session_start
+
+    if client.connect(("talk.google.com", 5222)):
+      print "logged in"
+      client.process(threaded=False)
+      # client has:
+      # .address (server address)
+      # .boundjid
+      #   .bare
+      #   .full
+      # .roster
+    else:
+      print "Couldn't connect"

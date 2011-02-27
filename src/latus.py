@@ -32,6 +32,10 @@ class StatusLog:
         self.log("timed", "{0:.2f} secs".format(rt.elapsed),
                  rt.name, rt.result)
 
+    def actor_error(self, name, err, trace):
+        self.log("actor error", name, err)
+        traceback.print_exception(type(err), err, trace)
+
     def actor_died(self, name, err, trace):
         self.log("actor died", name, err)
         traceback.print_exception(type(err), err, trace)
@@ -286,6 +290,71 @@ def main_sync_two(args, conf):
         # for log_entry in sorted(merge_log2.read_entries(peerid2)):
         #    print log_entry
 
+def main_actor_test():
+    from util import Actor, async, async_result, AllFuture
+
+    class ThreadedActorStarter:
+        def __init__(self):
+            self.actors = []
+
+        def start(self, actor):
+            start_thread(actor.run, actor.name)
+            self.actors.append(actor)
+            return actor
+
+        def stop_all(self):
+            return AllFuture([actor.stop() for actor in self.actors])
+
+    class StatusLogActor(Actor, StatusLog):
+        def __init__(self, name, clock):
+            StatusLog.__init__(self, clock)
+            Actor.__init__(self, name, self)
+
+        @async
+        def log(self, *args):
+            print args
+
+    class Peer(Actor):
+        def __init__(self, peerid, slog):
+            self.peerid = peerid
+            Actor.__init__(self, repr(peerid), slog)
+
+        def __repr__(self):
+            return "{0.__class__.__name__}({0.peerid})".format(self)
+
+        @async
+        def scan(self):
+            self.slog.log("scan", self.peerid)
+
+        @async_result
+        def read_entries(self):
+            return [(self.peerid, "entry1")]
+
+        @async_result
+        def read_chunk(self, hash, loc, size):
+            return ("chunk", self.peerid, hash, loc, size)
+
+        def finish(self):
+            self.slog.log("finish", self.peerid)
+
+    clock = Clock()
+    starter = ThreadedActorStarter()
+    #slog = StatusLog(clock)
+    slog = starter.start(StatusLogActor("StatusLog", clock))
+    peer1 = starter.start(Peer("pthatcher@gmail.com/test1", slog))
+    peer2 = starter.start(Peer("pthatcher@gmail.com/test2", slog))
+    
+    peer1.scan()
+    peer2.scan()
+    chunk1_f = peer1.read_chunk("hash", 0, 100)
+    print peer2.read_chunk("hash", 100, 100).wait(0.1)
+    print chunk1_f.wait(0.1)
+
+    #import code
+    #code.interact("Debug Console", local = {"peer1" : peer1, "peer2": peer2})
+    starter.stop_all().wait(0.2)
+
+
 class Config:
     hash_type = hashlib.sha1
 
@@ -324,68 +393,8 @@ class Config:
 
     path_filter = PathFilter(globs_to_ignore, names_to_ignore)   
 
+
+
 if __name__ == "__main__":
     #main_sync_two(sys.argv[1:], Config)
-
-    from util import Actor, async, AllFuture
-
-    class ThreadedActorStarter:
-        def __init__(self):
-            self.actors = []
-
-        def start(self, actor):
-            start_thread(actor.run, actor.name)
-            self.actors.append(actor)
-            return actor
-
-        def stop_all(self):
-            return AllFuture([actor.stop() for actor in self.actors])
-
-    class StatusLogActor(Actor, StatusLog):
-        def __init__(self, name, clock):
-            StatusLog.__init__(self, clock)
-            Actor.__init__(self, name, self)
-
-        @async
-        def log(self, *args):
-            print args
-
-    class Peer(Actor):
-        def __init__(self, peerid, slog):
-            self.peerid = peerid
-            Actor.__init__(self, repr(peerid), slog)
-
-        def __repr__(self):
-            return "{0.__class__.__name__}({0.peerid})".format(self)
-
-        @async
-        def scan(self):
-            self.slog.log("scan", self.peerid)
-
-        @async
-        def read_entries(self):
-            return [(self.peerid, "entry1")]
-
-        @async
-        def read_chunk(self, hash, loc, size):
-            return ("chunk", self.peerid, hash, loc, size)
-
-        def finish(self):
-            self.slog.log("finish", self.peerid)
-
-    clock = Clock()
-    starter = ThreadedActorStarter()
-    #slog = StatusLog(clock)
-    slog = starter.start(StatusLogActor("StatusLog", clock))
-    peer1 = starter.start(Peer("pthatcher@gmail.com/test1", slog))
-    peer2 = starter.start(Peer("pthatcher@gmail.com/test2", slog))
-    
-    peer1.scan()
-    peer2.scan()
-    chunk1_f = peer1.read_chunk("hash", 0, 100)
-    print peer2.read_chunk("hash", 100, 100).wait(0.1)
-    print chunk1_f.wait(0.1)
-
-    #import code
-    #code.interact("Debug Console", local = {"peer1" : peer1, "peer2": peer2})
-    starter.stop_all().wait(0.2)
+    main_actor_test()
