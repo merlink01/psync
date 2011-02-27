@@ -459,7 +459,7 @@ if __name__ == "__main__":
                 print (self.jid, "offline", remote_jid)
 
         def on_files_iq(self, iq):
-            print (self.jid, "iq", iq[0])
+            print (self.jid, "files iq", iq.xml[0])
 
         def send_get_files(self, tojid, since):
             iq = self.client.make_iq()
