@@ -290,6 +290,23 @@ def main_sync_two(args, conf):
         # for log_entry in sorted(merge_log2.read_entries(peerid2)):
         #    print log_entry
 
+def main_get_public_address():
+    import re
+    import urllib2
+
+    # NOTE: Doing sock.setsockopt(socket.SOL_SOCKET,
+    # socket.SO_REUSEADDR, 1) doesn't seem to work :(.
+    # Also, the apple router appears to completely randomize the ports :(.
+    stream = urllib2.urlopen("http://www.ipchicken.com", timeout = 5.0)
+    data = stream.read() 
+    address_match = re.compile(
+        "(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})").search(data)
+    port_match = re.compile("Port:\s*(\S+)").search(data)
+    address = address_match.group(1) if address_match is not None else None
+    port = port_match.group(1) if port_match is not None else None
+    print address, port
+    
+
 def main_actor_test():
     from util import Actor, async, async_result, AllFuture
 
@@ -353,6 +370,12 @@ def main_actor_test():
     #import code
     #code.interact("Debug Console", local = {"peer1" : peer1, "peer2": peer2})
     starter.stop_all().wait(0.2)
+
+def main_run_sockets():
+    import socket
+    sock = socket.socket()
+    sock.connect(("localhost", 8080))
+    stream = sock.makefile()
 
 
 class Config:
