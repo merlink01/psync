@@ -8,6 +8,76 @@ import logging
 logging.basicConfig(level = logging.INFO,
                     format = "%(levelname)-8s %(message)s")
 
+def main_actor_test():
+    from util import Actor, async, async_result, AllFuture
+
+    class ThreadedActorStarter:
+        def __init__(self):
+            self.actors = []
+
+        def start(self, actor):
+            start_thread(actor.run, actor.name)
+            self.actors.append(actor)
+            return actor
+
+        def stop_all(self):
+            return AllFuture([actor.stop() for actor in self.actors])
+
+    class StatusLogActor(Actor, StatusLog):
+        def __init__(self, name, clock):
+            StatusLog.__init__(self, clock)
+            Actor.__init__(self, name, self)
+
+        @async
+        def log(self, *args):
+            print args
+
+    class Peer(Actor):
+        def __init__(self, peerid, slog):
+            self.peerid = peerid
+            Actor.__init__(self, repr(peerid), slog)
+
+        def __repr__(self):
+            return "{0.__class__.__name__}({0.peerid})".format(self)
+
+        @async
+        def scan(self):
+            self.slog.log("scan", self.peerid)
+
+        @async_result
+        def read_entries(self):
+            return [(self.peerid, "entry1")]
+
+        @async_result
+        def read_chunk(self, hash, loc, size):
+            return ("chunk", self.peerid, hash, loc, size)
+
+        def finish(self):
+            self.slog.log("finish", self.peerid)
+
+    clock = Clock()
+    starter = ThreadedActorStarter()
+    #slog = StatusLog(clock)
+    slog = starter.start(StatusLogActor("StatusLog", clock))
+    peer1 = starter.start(Peer("pthatcher@gmail.com/test1", slog))
+    peer2 = starter.start(Peer("pthatcher@gmail.com/test2", slog))
+    
+    peer1.scan()
+    peer2.scan()
+    chunk1_f = peer1.read_chunk("hash", 0, 100)
+    print peer2.read_chunk("hash", 100, 100).wait(0.1)
+    print chunk1_f.wait(0.1)
+
+    #import code
+    #code.interact("Debug Console", local = {"peer1" : peer1, "peer2": peer2})
+    starter.stop_all().wait(0.2)
+
+def main_run_sockets():
+    import socket
+    sock = socket.socket()
+    sock.connect(("localhost", 8080))
+    stream = sock.makefile()
+
     # class ActorProxy(Actor):
     #     def __init__(self, name, slog, sync_names = [], async_names = []):
     #         for async_name in self.sync_names:
@@ -149,3 +219,21 @@ logging.basicConfig(level = logging.INFO,
 
     # creating our own stanzas:
     # https://github.com/fritzy/SleekXMPP/wiki/Stanza-Objects
+
+def main_get_public_address():
+    import re
+    import urllib2
+
+    # NOTE: Doing sock.setsockopt(socket.SOL_SOCKET,
+    # socket.SO_REUSEADDR, 1) doesn't seem to work :(.
+    # Also, the apple router appears to completely randomize the ports :(.
+    stream = urllib2.urlopen("http://www.ipchicken.com", timeout = 5.0)
+    data = stream.read() 
+    address_match = re.compile(
+        "(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})").search(data)
+    port_match = re.compile("Port:\s*(\S+)").search(data)
+    address = address_match.group(1) if address_match is not None else None
+    port = port_match.group(1) if port_match is not None else None
+    print address, port
+    
+

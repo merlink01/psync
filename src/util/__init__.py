@@ -1,10 +1,8 @@
-# Copyright 2006 Uberan - All Rights Reserved
-
 from utils import *
 
 import sql
 
-from decorators import decorator, decorator_with_args, into
+from decorators import decorator, decorator_with_args, into, type_constructors
 
 from Record import Record
 from Enum import Enum

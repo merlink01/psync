@@ -1,8 +1,37 @@
-# Copyright 2006 Uberan - All Rights Reserved
+# Copyright (c) 2012, Peter Thatcher
+# All rights reserved.
+# 
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are
+# met:
+# 
+#   1. Redistributions of source code must retain the above copyright notice,
+#      this list of conditions and the following disclaimer.
+#   2. Redistributions in binary form must reproduce the above copyright notice,
+#      this list of conditions and the following disclaimer in the documentation
+#      and/or other materials provided with the distribution.
+#   3. The name of the author may not be used to endorse or promote products
+#      derived from this software without specific prior written permission.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR "AS IS" AND ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+# EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+# OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# This is semi-random collection of utilities that I find I need all
+# of the time.
 
 import threading
 import time
     
+# Using time.time throught the code is a real mess for testing.
+# Abstract that away.
 class Clock:
     def unix(_):
         return int(time.time())
@@ -11,6 +40,9 @@ class Clock:
         return time.time()
 
 def groupby(vals, key = None, into = None):
+    """Returns {key: values}, where values are grouped by key and put
+    into the data structure given by the arg 'into', or a list if none
+    given."""
     group_by_key = {}
     for val in vals:
         group = group_by_key.setdefault(key(val), [])
@@ -22,8 +54,8 @@ def groupby(vals, key = None, into = None):
 
     return group_by_key
 
-# like dct.setdefault(key, get_val(*args, **kargs)), except lazy
 def setdefault(dct, key, get_val, *args, **kargs):
+    """Like dct.setdefault(key, get_val(*args, **kargs)), except lazy."""
     try:
         return dct[key]
     except KeyError:
@@ -32,31 +64,17 @@ def setdefault(dct, key, get_val, *args, **kargs):
         return val
     
 def partition(vals, predicate):
+    """An faster way of saying
+       ([val for val in vals where predicate(val)],
+        [val for val in vals where not predicate(val)])"""
     trues, falses = [], []
     for val in vals:
         (trues if predicate(val) else falses).append(val)
     return trues, falses
 
 def flip_dict(dct):
+    """Turn {key: value} into {val: key}."""
     return dict((v, k) for (k, v) in dct.iteritems())
-
-# If you have an enum of types and a record where the first value is
-# the type, this will let you say Record.type1(arg2, arg3).  It sounds
-# tricky, but it's really handy.
-def type_constructors(types):
-    def add_type_constructor(cls, type):
-        @classmethod
-        def type_constructor(cls, *args):
-            return cls(type, *args)
-
-        setattr(cls, type.name, type_constructor)
-
-    def add_type_constructors(cls):
-        for type in types:
-            add_type_constructor(cls, type)
-        return cls
-
-    return add_type_constructors
 
 def start_thread(func, name = None, isdaemon = True):
     thread = threading.Thread(target = func)

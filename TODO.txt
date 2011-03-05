@@ -1,3 +1,15 @@
+email James
+  change copyrights
+  comments
+  move move detection into diff.py
+  test it :)
+  if revisions_root = None, just delete?
+  
+TODOs
+  calculate moves in diff.py.
+  revisions with groupids?
+
+
 next up
   different threads
     one thread reading/writing sockets, using asyncore
@@ -9,7 +21,7 @@ next up
       a separate thread for fetching?
 
   group scanning
-    implement reading of .latusconf files
+    implement reading of .psync files
     implement parent/child groups
     implement groupid security
          
@@ -30,7 +42,7 @@ next up
   big ****s
     get photos to cess
 
-  big ***s in latus.py
+  big ***s in psync.py
     use peerid in HistoryStore select!
     use peerid in mergelog select
     handle merge errors, especially "created!" and "changed!"
@@ -101,7 +113,7 @@ next up
       finished_count, total_count,
       finished_size, total_size,
       current_path, current_finished_size, current_size
-    write status to .latus/status.txt constantly
+    write status to .psync/status.txt constantly
     need from peer:
       read_entries(since)
       read_chunk(hash, loc, size)
@@ -187,7 +199,7 @@ next up
     tests/FileScannerTests.py: uses InMemoryFileSystem, InMemoryHistoryStore
     tests/UtilTests.py
     
-  latus.py improvements
+  psync.py improvements
     logging instead of printing
     slow down disk IO to not clobber system when hashing a lot
   
@@ -213,7 +225,7 @@ improvements later
   add file watchers (win32 and inotify for now)
   filter by Win32 attributes?
 
-python
+python 2.6 things to try
   io module
   binary literals
   class decorators

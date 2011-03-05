@@ -1,11 +1,7 @@
-git pull peter@SEMacBook1-2.local:latus  --upload-pack /Users/peter/bin/git-upload-pack
+git pull peter@SEMacBook1-2.local:psync  --upload-pack /Users/peter/bin/git-upload-pack
 
 depenecies
   python 2.6
-  pyinotify: git://github.com/seb-m/pyinotify.git
-  gevent: ???
-    libevent: ???
-    greenlet: ???
-
-  
+  later
+    pyinotify: git://github.com/seb-m/pyinotify.git
     

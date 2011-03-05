@@ -1,4 +1,32 @@
-# Copyright 2006 Uberan - All Rights Reserved
+# Copyright (c) 2012, Peter Thatcher
+# All rights reserved.
+# 
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are
+# met:
+# 
+#   1. Redistributions of source code must retain the above copyright notice,
+#      this list of conditions and the following disclaimer.
+#   2. Redistributions in binary form must reproduce the above copyright notice,
+#      this list of conditions and the following disclaimer in the documentation
+#      and/or other materials provided with the distribution.
+#   3. The name of the author may not be used to endorse or promote products
+#      derived from this software without specific prior written permission.
+# 
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR "AS IS" AND ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+# EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+# OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+# OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# The purpose of this file is to abstactly access the FileSystem,
+# especially for the purpose of scanning it to see what files are
+# different.  It works really hard to do so fast.
 
 import hashlib
 import logging
@@ -12,12 +40,17 @@ from util import Record
 DELETED_SIZE = 0
 DELETED_MTIME = 0
 
-# Also known as an "rpath".
 class RootedPath(Record("root", "rel")):
+    """ Represents a path (rel) that is relative to another path
+    (root).  For examples, when scanning a large directory, it is
+    convenient to know the paths relative to the directory passed in.
+    In code a RootedPath is often called an "rpath"."""
+
     @property
     def full(self):
         return join_paths(*self)
 
+# An "rpath" is short for "RootedPath"
 class FileStat(Record("rpath", "size", "mtime")):
     @classmethod
     def from_deleted(cls, rpath):
@@ -49,6 +82,12 @@ def parent_path(path):
 def mtimes_eq(mtime1, mtime2):
     return (mtime1 >> 1) == (mtime2 >> 1)
 
+# Path encoding is needed because Windows has really funky rules for
+# dealing with unicode paths. It seems like an all OSes, what you get
+# back and what it expects from you isn't consistent.  The PathEncoder
+# stuff is there to be a single place where we can take care of this.
+# Also, we want to deal with paths in a consistent way with "/" and
+# not worry about Windows oddities ("\", etc).
 def PathEncoder():
     is_mac = platform.os.name == "posix" and platform.system() == "Darwin"
     is_windows = platform.os.name in ["nt", "dos"]
@@ -82,6 +121,9 @@ class WindowsPathEncoder(Record("encoding", "decoding")):
         return win_path.replace(os.sep, PATH_SEP).decode(self.decoding)
 
 class FileSystem(Record("slog", "path_encoder")):
+    """Encapsulates all of the operations we need on the FileSystem.
+    The most important part is probably listing/stating."""
+
     READ_MODE           = "rb"
     NEW_WRITE_MODE      = "wb"
     EXISTING_WRITE_MODE = "r+b"
@@ -114,7 +156,7 @@ class FileSystem(Record("slog", "path_encoder")):
             return False
         return True
 
-    # yields FileStat, with same "root mark" rules as self.list(...)
+    # yields FileStat, with same "root marker" rules as self.list(...)
     #
     # On my 2008 Macbook, reads about 10,000 files/sec when doing small
     # groups (5,000 files), and 4,000 files/sec when doing large
@@ -125,14 +167,14 @@ class FileSystem(Record("slog", "path_encoder")):
     #
     # On my faster linux desktop machine, it's about 30,000 files/sec
     # when cached, even for 200,00 files, which is a big improvement.
-    def list_stats(fs, root, root_mark = None, names_to_ignore = frozenset()):
+    def list_stats(fs, root, root_marker = None, names_to_ignore = frozenset()):
         return fs.stats(fs.list(
-            root, root_mark = root_mark, names_to_ignore = names_to_ignore))
+            root, root_marker = root_marker, names_to_ignore = names_to_ignore))
 
     # yields a RootedPath for each file found in the root.  The intial
-    # root is the given root.  Deeper in, if there is a "root_mark"
+    # root is the given root.  Deeper in, if there is a "root_marker"
     # file in a directory, that directory becomes a new root.
-    def list(fs, root, root_mark = None, names_to_ignore = frozenset()):
+    def list(fs, root, root_marker = None, names_to_ignore = frozenset()):
         listdir = os.listdir
         join = os.path.join
         isdir = os.path.isdir
@@ -149,8 +191,8 @@ class FileSystem(Record("slog", "path_encoder")):
         # We pass root around so that we only have to decode it once.
         def walk(root, encoded_root, encoded_parent):
             child_names = listdir(encoded_parent)
-            if root_mark is not None:
-                if root_mark in child_names:
+            if root_marker is not None:
+                if root_marker in child_names:
                     encoded_root = encoded_parent
                     root = decode(encoded_root)
 
