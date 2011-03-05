@@ -7,5 +7,5 @@ from FileSystem import FileSystem, FileStat, join_paths
 from PathFilter import PathFilter
 from revisions import RevisionStore
 from scan import scan_and_update_history
-
+from merge import diff_and_merge
 

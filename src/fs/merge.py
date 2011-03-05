@@ -77,14 +77,14 @@ def diff_and_merge(source_history, dest_history, dest_groupids,
         if fs.exists(dest_path):
             dest_path = verify_stat(fs, dest_groupids,
                                     action.gpath, action.older)
-            trash(dest_path, revisions, action.older, slog)
+            trash(fs, dest_path, revisions, action.older, slog)
         merge(action, history_store, peerid, clock, merge_log, slog)
 
     for action in undeletes:
         rev_entry = action.details
         dest_path = verify_stat(fs, dest_groupids,
                                 action.gpath, action.older)
-        trash(dest_path, revisions, action.older, slog)
+        trash(fs, dest_path, revisions, action.older, slog)
         with slog.untrashing(rev_entry, dest_path):
             revisions.copy_out(rev_entry, dest_path)
         merge(action, history_store, peerid, clock, merge_log, slog)
@@ -94,7 +94,7 @@ def diff_and_merge(source_history, dest_history, dest_groupids,
         source_path = fetch(action.newer)
         dest_path = verify_stat(fs, dest_groupids,
                                 action.gpath, action.older)
-        trash(dest_path, revisions, action.older, slog)
+        trash(fs, dest_path, revisions, action.older, slog)
         # TODO: Move instead of copying once we have a real fetcher in place.
         with slog.copying(source_path, dest_path):
             fs.copy(source_path, dest_path, mtime = action.newer.mtime)
@@ -127,7 +127,7 @@ def get_dest_path(dest_groupids, gpath):
     return join_paths(root, path)
 
 def verify_stat(fs, dest_groupids, gpath, latest):
-    full_path = get_dest_path(gpath)
+    full_path = get_dest_path(dest_groupids, gpath)
 
     # TODO: Handle these errors better.
     if latest is None or latest.deleted:
@@ -139,7 +139,7 @@ def verify_stat(fs, dest_groupids, gpath, latest):
 
     return full_path
         
-def trash(source_path, revisions, dest_entry, slog):
+def trash(fs, source_path, revisions, dest_entry, slog):
     if fs.exists(source_path):
         with slog.trashing(dest_entry):
             revisions.move_in(source_path, dest_entry)

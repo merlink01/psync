@@ -36,12 +36,10 @@ import sqlite3
 import traceback
 
 from fs import (FileSystem, PathFilter, RevisionStore,
-                join_paths, scan_and_update_history, diff_fetch_merge)
+                join_paths, scan_and_update_history, diff_and_merge)
 from history import HistoryStore, MergeLog
 from util import Record, Clock, RunTime, SqlDb, flip_dict
                   
-def filter_entries_by_gpath(history, groupids, path_filter):
-
 class StatusLog:
     """ All the loggable events of the entire application are routed
     through this class.  An instance of this class is passed around in
@@ -67,8 +65,7 @@ class StatusLog:
         return RunTime(name, self.clock, self.log_run_time)
 
     def log_run_time(self, rt):
-        self.log("timed", "{0:.2f} secs".format(rt.elapsed),
-                 rt.name, rt.result)
+        self.log(rt.name, "in {0:.2f} secs".format(rt.elapsed), rt.result)
 
     def actor_error(self, name, err, trace):
         self.log_exception("actor error", err, trace, name)
@@ -201,24 +198,16 @@ class Config:
     path_filter = PathFilter(globs_to_ignore, names_to_ignore)
 
 
-# TODO: implement reading .psyncconf
-# class Groupids(Record("root_by_groupid", "groupid_by_root")):
-#     def __new__(cls, root_by_groupid):
-#         groupid_by_root = flip_dict(root_by_groupid)
-#         return cls.new(root_by_groupid, groupid_by_root)
+class Groupids(Record("root_by_groupid", "groupid_by_root")):
+    def __new__(cls, root_by_groupid):
+        groupid_by_root = flip_dict(root_by_groupid)
+        return cls.new(root_by_groupid, groupid_by_root)
 
-#     def to_root(self, groupid):
-#         return self.root_by_groupid.get(groupid, None)
+    def to_root(self, groupid):
+        return self.root_by_groupid.get(groupid, None)
 
-#     def from_root(self, root):
-#         return self.groupid_by_root.get(root, None)
-
-# groupids1 = Groupids({"group1": fs_root1,
-#                       "group1/cmusic": os.path.join(
-#                           fs_root1, "Conference Music")})
-# groupids2 = Groupids({"group1": fs_root2,
-#                       "group1/cmusic": os.path.join(
-#                           fs_root2, "cmusic")})
+    def from_root(self, root):
+        return self.groupid_by_root.get(root, None)
 
 # python psync.py source dest
 if __name__ == "__main__":
@@ -227,6 +216,11 @@ if __name__ == "__main__":
     source_peerid = source_root
     dest_peerid = dest_root
 
+    # TODO: implement reading .psync.
+    source_groupids = Groupids({"": source_root})
+    dest_groupids = Groupids({"": dest_root})
+
+
     conf = Config()
 
     clock = Clock()
@@ -234,13 +228,13 @@ if __name__ == "__main__":
     fs = FileSystem(slog)
 
     source_db_path = os.path.join(source_root, conf.db_path)
-    dest_db_path2= os.path.join(dest_root, conf.db_path)
+    dest_db_path = os.path.join(dest_root, conf.db_path)
     revisions_root = os.path.join(dest_root, conf.revisions_path)
 
     fs.create_parent_dirs(source_db_path)
     fs.create_parent_dirs(dest_db_path)
-    with (sqlite3.connect(source_db_path) as source_db,
-          sqlite3.connect(dest_db_path) as dest_db):
+    with sqlite3.connect(source_db_path) as source_db, \
+         sqlite3.connect(dest_db_path) as dest_db:
         source_history_store = HistoryStore(SqlDb(source_db), slog)
         dest_history_store = HistoryStore(SqlDb(dest_db), slog)
         revisions = RevisionStore(fs, revisions_root)
@@ -261,7 +255,7 @@ if __name__ == "__main__":
         filtered_source_history = \
             (entry for entry in source_history
              if (dest_groupids.to_root(entry.groupid) is not None and
-                 not path_filter.ignore_path(entry.path)))
+                 not conf.path_filter.ignore_path(entry.path)))
 
         def fetch(entry):
             # We just pretend we fetched it.  Once diff_and_merge
@@ -273,9 +267,9 @@ if __name__ == "__main__":
 
         # TODO: handle errors,
         #   especially unknown groupid, created! and changed! errors
-        diff_fetch_merge(filtered_source_history, dest_history, dest_groupids,
-                         fetch, revisions, fs, dest_history_store, dest_peerid,
-                         clock, merge_log, slog)
+        diff_and_merge(filtered_source_history, dest_history, dest_groupids,
+                       fetch, revisions, fs, dest_history_store, dest_peerid,
+                       clock, merge_log, slog)
 
         # for merge_action in sorted(merge_log.read_actions(dest_peerid)):
         #   print merge_action

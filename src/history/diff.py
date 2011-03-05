@@ -29,7 +29,7 @@
 # of one into the history of the other.
 
 from entry import History, HistoryEntry, group_history_by_gpath
-from util import Record, Enum, type_constructors, setdefault
+from util import Record, Enum, type_constructors, setdefault, groupby
 
 # A history conflict means that's there's a conflict, but the contents
 # are the same, so we don't have to re-transfer anything: just figure
@@ -119,9 +119,9 @@ class MergeAction(Record("type", "gpath", "older", "newer", "details")):
 #  if history conflict: resolve by updating local history
 #  if conflict: pass along as a conflict
 #  otherwise: update
-def calculate_merge_actions_without_moves(source_entries, dest_entries,
-                                          revisions):
-    actions = calculate_merge_actions(source_entries, dest_entries, revisions)
+def calculate_merge_actions(source_entries, dest_entries, revisions):
+    actions = iter_merge_actions_without_moves(
+        source_entries, dest_entries, revisions)
     action_by_type = groupby(actions, MergeAction.get_type)
     touches, copies, moves, deletes, undeletes, updates, uphists, conflicts = \
              (action_by_type.get(type, []) for type in MergeActionType)
