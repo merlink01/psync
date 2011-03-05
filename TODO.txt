@@ -1,16 +1,33 @@
-email James
-  change copyrights
-  comments
-  move move detection into diff.py
-  test it :)
+Big TODOs
+  slow down disk IO to not clobber system when hashing a lot
+
+  logging instead of printing
   if revisions_root = None, just delete?
-  
-TODOs
-  calculate moves in diff.py.
   revisions with groupids?
+  use peerid in HistoryStore select!
+  use peerid in mergelog select
+  handle merge errors, especially "created!" and "changed!"
+    if fs has changed, notify scanner
+    if no sources working, ???
+    if fs error moving file in place, LOG and leave chunks around
 
+group scanning
+  implement reading of .psync files
+  implement parent/child groups
+  implement groupid security
+       
+get a network up and running
+  diff a diff of the metadata
+  fetch chunks
+  merge fetched chunks
 
-next up
+unit tests
+  tests/FileSystemTests.py
+  tests/FileHistoryTests.py
+  tests/FileScannerTests.py: uses InMemoryFileSystem, InMemoryHistoryStore
+  tests/UtilTests.py
+    
+ideas
   different threads
     one thread reading/writing sockets, using asyncore
     one thread listening for incoming connections
@@ -20,35 +37,6 @@ next up
     one thread doing remote updates/scans/diffs/merging
       a separate thread for fetching?
 
-  group scanning
-    implement reading of .psync files
-    implement parent/child groups
-    implement groupid security
-         
-  get a network up and running
-    try concurrence and gevent?
-
-    login
-    send a custom message
-    receive custom messages
-    ask for latest metadata
-    keep track of who is available
-    spawn a gevent "thread" to talk to each one until unavailable
-    p2p data (w/ SSL!)
-    diff a diff of the metadata
-    fetch chunks
-    merge fetched chunks
-
-  big ****s
-    get photos to cess
-
-  big ***s in psync.py
-    use peerid in HistoryStore select!
-    use peerid in mergelog select
-    handle merge errors, especially "created!" and "changed!"
-      if fs has changed, notify scanner
-      if no sources working, ???
-      if fs error moving file in place, LOG and leave chunks around
 
   fetch using chunk store
     fetch into "revisions" (once done)
@@ -104,7 +92,6 @@ next up
 	else:  # even if in progress
 	  begin_fetch_write(chunkid)
 
-  more good notes
     status log (slog)
       put in db
       put in logging module (file)
@@ -120,15 +107,6 @@ next up
       read_merge_log(since)
       read_status()
 
-  got some syncing going on!
-    Implement meta->meta one way sync
-      use peerid
-    Implement more xmpp stuff
-    watch out for performance
-    implement trash, especially for updates
-    figure out what to do with conflicts
-
-  from notes
     log tables
       runtimes: (action, start, duration, result)
       fetchqueue: (peerid, groupid, path, size, mtime, hash, utime)
@@ -166,15 +144,13 @@ next up
 	(priority by modtime?)
 
     big stuff left to figure out
-      1. groups: how to separate them
-      2. permissions: control how sees what, and who we merge from
-      3. p2p networking and discovery
-      4. status and logging
-      5. UI
-      6. file watching
+      - permissions: control how sees what, and who we merge from
+      - p2p networking and discovery
+      - status and logging
+      - UI
+      - file watching
 
-  other ideas
-    *** sync with iriver using it
+   sync with iriver using it
       no hashing?
 
     make FileWatcher
@@ -189,35 +165,6 @@ next up
         and maybe later, smart files
       win32
         make it work again
-
-    get an xmpp client that serves requests for metadata
-    get an xmpp client that requests metadata and copies it
-
-  unit tests
-    tests/FileSystemTests.py
-    tests/FileHistoryTests.py
-    tests/FileScannerTests.py: uses InMemoryFileSystem, InMemoryHistoryStore
-    tests/UtilTests.py
-    
-  psync.py improvements
-    logging instead of printing
-    slow down disk IO to not clobber system when hashing a lot
-  
-  only 4 FS threads:
-    1. history: reads + writes db
-    2. scanner: stats + hashes
-    3. merger: writes/copies/moves
-    4. chunk source: reads
-
-overall:
-  xmpp<->xmpp messages
-  xmpp<->xmpp metadata syncing for one user
-  p2p fs->fs 1-way sync for one user
-  p2p fs<-fs 2-way sync
-
-concurency:
-  try gevent first
-  then try concurrence
 
 improvements later
   commit in chunks of 1,000 so files start syncing even while
