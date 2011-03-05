@@ -1,0 +1,13 @@
+psync = persistant, p2p sync
+  
+Right now, it's neither :).  But, it has the sync engine it needs.  If you want persitant, just run the following every 5 minutes:
+
+cd src
+python psync.py source_directory destination_directory
+python psync.py destination_directory source_directory
+
+
+If you only want unidirectional sync, only run the first step.  Runnning both gives you bidirectional sync.
+
+
+To get p2p sync, we'll need to get some networking logic in place.
