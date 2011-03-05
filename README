@@ -11,3 +11,5 @@ If you only want unidirectional sync, only run the first step.  Runnning both gi
 
 
 To get p2p sync, we'll need to get some networking logic in place.
+
+WARNING: It's completely not tested on Windows yet.
