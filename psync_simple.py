@@ -1,27 +1,17 @@
 ## TODO:
 # Handle unicode paths, especially in Windows.
-# StatusLog
-#   .time(name) -> rt
-#   rt.set_result(val)
-#   .not_a_file(full_path)
-#   .hashing(path)
-#   .could_not_hash(full_path, err)
-#   .copying
-#   .moving
-#   .trashing
-#   .untrashing(source_entry, dest_path)
 # HistoryStore(path, slog)
+#   ??? Should we stick with sqlite or use just some appending file?
 #   calls create_parent_dirs at some point
 #   read_history
-# PathFilter
-#   put .psync in .ignore_path; it's all we use
-# RevisionsStore
-#  copy_out
-#  move_in
+#   add_entries
 
 from collections import namedtuple
+from contextlib import contextmanager
+import fnmatch
 import hashlib
 import os
+import re
 import shutil
 
 DELETED_SIZE = 0
@@ -78,6 +68,52 @@ class MergeAction(namedtuple("MergeAction",
     def __new__(cls, type, older, newer, details = None):
         path = older.path if newer is None else newer.path
         return cls._make([type, path, older, newer, details])
+
+class PathFilter:
+    def __init__(cls, globs_to_ignore):
+        self.patterns_to_ignore = \
+            [re.compile(fnmatch.translate(glob), re.IGNORECASE)
+             for glob in globs]
+
+        self.result_by_path = {}
+
+    def ignore_path(self, path):
+        result = self.result_by_path.get(path, None)
+        if result is not None:
+            return result
+        else:
+            result = any(pattern.match(path) for pattern in
+                         self.patterns_to_ignore)
+            self.result_by_path[path] = result
+            return result
+
+class RevisionStore(Record("fs", "root")):
+    def __init__(self, root):
+        self.root = root
+
+    def __contains__(self, entry):
+        full_path = self.get_full_revision_path(entry)
+        return file_stat_eq(full_path, entry.size, entry.mtime)
+
+    def move_in(self, source_path, dest_entry):
+        dest_path = self.get_full_revision_path(dest_entry)
+        move_file(source_path, dest_path, mtime = dest_entry.mtime)
+
+    def copy_out(self, source_entry, dest_path):
+        source_path = self.get_full_revision_path(source_entry)
+        copy_file(source_path, dest_path, mtime = source_entry.mtime)
+
+    def get_full_revision_path(self, entry):
+        return os.path.join(self.root, self.get_revision_path(entry))
+
+    def get_revision_path(self, entry):
+        path, ext = os.path.splitext(entry.path)
+        if entry.hash:
+            return "{path}_{hash}{ext}".format(
+                path = path, hash = entry.hash, ext = ext)
+        else:
+            return "{path}_{size}_{mtime}{ext}".format(
+                path = path, size = entry.size, mtime = entry.mtime, ext = ext)
 
 # returns the updated history
 def scan_and_update_history(root, path_filter, hash_type, history_store, slog):
@@ -253,15 +289,6 @@ def verify_stat(dest_root, path, latest):
             raise Exception("file changed!", full_path)
 
     return full_path
-
-def file_stat_eq(path, size, mtime):
-    try:
-        stats = os.stat(path)
-        current_size = stats[STAT_SIZE_INDEX]
-        current_mtime = stats[STAT_MTIME_INDEX]
-        return (current_size == size and mtimes_eq(current_mtime, mtime))
-    except OSError:
-        return False
 
 def trash_file(source_path, revisions, dest_entry, slog):
     if os.path.exists(source_path):
@@ -449,6 +476,15 @@ def list_paths(root, path_filter):
     return walk(root)
 
 
+def file_stat_eq(path, size, mtime):
+    try:
+        stats = os.stat(path)
+        current_size = stats[STAT_SIZE_INDEX]
+        current_mtime = stats[STAT_MTIME_INDEX]
+        return (current_size == size and mtimes_eq(current_mtime, mtime))
+    except OSError:
+        return False
+
 # Windows shaves off a bit of mtime info.
 # TODO: Only do this sillyness on Windows.
 def mtimes_eq(mtime1, mtime2):
@@ -527,6 +563,71 @@ def groupby(vals, key = None, into = None):
     return group_by_key
 
 
+## Main ##
+
+class RunTimer:
+    def __init__(self):
+        self.result = None
+
+    def set_result(self, result):
+        self.result = result
+
+class StatusLog:
+    # TODO: Update this to use python's built in logging, and to make
+    # the output more readable.
+    def log(self, *args):
+        print args
+
+    @contextmanager
+    def time(self, name):
+        rt = RunTimer()
+        before = time.time()
+        yield rt  # Can call .set_result()
+        after = time.time()
+        elapsed = after - before
+        self.log(name, "in {0:.2f} secs".format(elapsed), rt.result)
+
+    def not_a_file(self, path):
+        self.log("not a file", path)
+
+    def could_not_hash(self, path):
+        self.log("could not hash", path)
+
+    def merged(self, action):
+        self.log("merged", action)
+
+    @contextmanager
+    def hashing(self, path):
+        self.log("begin hashing", path)
+        yield
+        self.log("end hashing", path)
+
+    @contextmanager
+    def copying(self, from_path, to_path):
+        self.log("begin copy", from_path, to_path)
+        yield
+        self.log("end copy", from_path, to_path)
+
+    @contextmanager
+    def moving(self, from_path, to_path):
+        self.log("begin move", from_path, to_path)
+        yield
+        self.log("end move", from_path, to_path)
+
+    @contextmanager
+    def trashing(self, entry):
+        details = entry.hash or (entry.size, entry.mtime)
+        self.log("begin trashing", entry.path, details)
+        yield
+        self.log("end trashing", entry.path, details)
+
+    @contextmanager
+    def untrashing(self, entry, dest_path):
+        details = entry.hash or (entry.size, entry.mtime)
+        self.log("begin untrashing", dest_path, entry.path, details)
+        yield
+        self.log("end untrashing", dest_path, entry.path, details)
+
 if __name__ == "__main__":
     # python psync_simple.py source dest
     import sys
@@ -535,8 +636,7 @@ if __name__ == "__main__":
     hash_type = hashlib.sha1
     rel_history_path = ".psync/history.db"
     rel_revisions_path = ".psync/revisions/"
-    names_to_ignore = frozenset([".pysnc"])  # .git, .hg?
-    globs_to_ignore = ["*~", "*~$", "~*.tmp", "*.DS_Store"]
+    globs_to_ignore = [".psync*", "*~", "*~$", "~*.tmp", "*.DS_Store"]
 
     slog = StatusLog()
     source_history_store = HistoryStore(
