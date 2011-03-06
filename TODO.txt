@@ -1,8 +1,7 @@
 Big TODOs
-  fix conflict handling (must go BEFORE updates!)
-  verify bytes after copying?
   slow down disk IO to not clobber system when hashing a lot
 
+  verify bytes after copying?
   logging instead of printing
   if revisions_root = None, just delete?
   revisions with groupids?
