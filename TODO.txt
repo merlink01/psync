@@ -1,4 +1,6 @@
 Big TODOs
+  fix conflict handling (must go BEFORE updates!)
+  verify bytes after copying?
   slow down disk IO to not clobber system when hashing a lot
 
   logging instead of printing
