@@ -1,10 +1,5 @@
 ## TODO:
 # Handle unicode paths, especially in Windows.
-# HistoryStore(path, slog)
-#   ??? Should we stick with sqlite or use just some appending file?
-#   calls create_parent_dirs at some point
-#   read_history
-#   add_entries
 
 from collections import namedtuple
 from contextlib import contextmanager
@@ -13,6 +8,8 @@ import hashlib
 import os
 import re
 import shutil
+import sqlite3
+import time
 
 DELETED_SIZE = 0
 DELETED_MTIME = 0
@@ -70,11 +67,10 @@ class MergeAction(namedtuple("MergeAction",
         return cls._make([type, path, older, newer, details])
 
 class PathFilter:
-    def __init__(cls, globs_to_ignore):
+    def __init__(self, globs_to_ignore):
         self.patterns_to_ignore = \
             [re.compile(fnmatch.translate(glob), re.IGNORECASE)
-             for glob in globs]
-
+             for glob in globs_to_ignore]
         self.result_by_path = {}
 
     def ignore_path(self, path):
@@ -87,7 +83,7 @@ class PathFilter:
             self.result_by_path[path] = result
             return result
 
-class RevisionStore(Record("fs", "root")):
+class RevisionStore:
     def __init__(self, root):
         self.root = root
 
@@ -118,15 +114,15 @@ class RevisionStore(Record("fs", "root")):
 # returns the updated history
 def scan_and_update_history(root, path_filter, hash_type, history_store, slog):
     with slog.time("read history") as rt:
-        history = history_store.read_history()
+        history = history_store.read()
         rt.set_result({"history entries": len(history)})
 
     with slog.time("scan files") as rt:
-        file_stats = list_stats(root, path_filter)
+        file_stats = list(list_stats(root, path_filter))
         rt.set_result({"file stats": len(file_stats)})
 
     with slog.time("diff file stats") as rt:
-        fdiffs = diff_file_stats(file_stats, history, slog)
+        fdiffs = list(diff_file_stats(file_stats, history, slog))
         rt.set_result({"file diffs": len(fdiffs)})
 
     with slog.time("hash files") as rt:
@@ -134,8 +130,7 @@ def scan_and_update_history(root, path_filter, hash_type, history_store, slog):
         rt.set_result({"hashed file diffs": len(hashed_fdiffs)})
 
     with slog.time("rescan files") as rt:
-        rescan_stats = stats(root, path_filter, 
-            (fdiff.path for fdiff in hashed_fdiffs))
+        rescan_stats = list(stats(root, (fdiff.path for fdiff in hashed_fdiffs)))
         rt.set_result({"rescanned file stats": len(rescan_stats)})
 
     with slog.time("check change stability") as rt:
@@ -159,9 +154,10 @@ def scan_and_update_history(root, path_filter, hash_type, history_store, slog):
                                     fdiff.hash.encode("hex"), source_utime)
                        for fdiff in stable_fdiffs]
         if new_entries:
-            history_store.add_entries(new_entries)
+            history_store.add(new_entries)
+            slog.added_history(new_entries)
 
-    return history_store.read_history()
+    return history_store.read()
 
 # yields FileDiff
 # This is the heart of diffing:
@@ -201,7 +197,7 @@ def hash_file_diffs(root, fdiffs, hash_type, slog):
             yield fdiff
         else:
             full_path = os.path.join(root, diffs)
-            if not fs.isfile(full_path)
+            if not os.path.isfile(full_path):
                 slog.not_a_file(full_path)
             try:
                 # TODO: Put in nice inner-file hashing updates.
@@ -212,7 +208,7 @@ def hash_file_diffs(root, fdiffs, hash_type, slog):
             except IOError as err:
                 slog.could_not_hash(full_path, err)
 
-def group_history_by_gpath(entries):
+def group_history_by_path(entries):
     return groupby(entries, lambda entry: entry.path, into=History)
 
 def diff_and_merge(source_root, source_history,
@@ -282,7 +278,7 @@ def verify_stat(dest_root, path, latest):
 
     # TODO: Handle these errors better.
     if latest is None or latest.deleted:
-        if fs.exists(full_path):
+        if os.path.exists(full_path):
             raise Exception("file created!", full_path)
     else:
         if not file_stat_eq(full_path, latest.size, latest.mtime):
@@ -297,8 +293,9 @@ def trash_file(source_path, revisions, dest_entry, slog):
             remove_empty_parent_dirs(source_path)
 
 def add_new_entry(action, history_store, slog):
-    new_entry = action.newer._replace(utime=int(time.time())
-    history_store.add_entries([new_entry])
+    new_entries = [action.newer._replace(utime=int(time.time()))]
+    history_store.add(new_entries)
+    slog.added_history(new_entries)
     slog.merged(action)
 
 # yields MergeAction
@@ -593,6 +590,9 @@ class StatusLog:
     def could_not_hash(self, path):
         self.log("could not hash", path)
 
+    def added_history(self, entries):
+        self.log("added history", entries)
+
     def merged(self, action):
         self.log("merged", action)
 
@@ -628,6 +628,46 @@ class StatusLog:
         yield
         self.log("end untrashing", dest_path, entry.path, details)
 
+class HistoryStore:
+    TABLE_NAME = "history"
+    FIELD_TYPES = ["utime integer",
+                   "path varchar",
+                   "size integer",
+                   "mtime integer",
+                   "hash varchar",
+                   "source_utime integer"]
+    FIELDS = [ft.split(" ")[0] for ft in FIELD_TYPES]
+    CREATE = "create table {0} ({1})".format(
+        TABLE_NAME, ", ".join(FIELD_TYPES))
+    SELECT = "select {1} from {0}".format(
+        TABLE_NAME, ", ".join(FIELDS))    
+    INSERT = "insert into {0} ({1}) values ({2})".format(
+        TABLE_NAME, ", ".join(FIELDS), ", ".join("?" for _ in FIELDS))
+
+    def __init__(self, path, slog):
+        self.db = sqlite3.connect(path)
+        self.path = path
+        self.slog = slog
+        self.create_table()
+
+    def create_table(self):                                      
+        db_cursor = self.db.cursor()
+        try:
+            db_cursor.execute(self.CREATE)
+            self.db.commit()
+        except sqlite3.OperationalError:
+            pass  # Already exists?
+
+    def read(self):
+        db_cursor = self.db.cursor()
+        return [HistoryEntry(*values) for values in db_cursor.execute(self.SELECT)]
+
+    def add(self, new_entries):
+        db_cursor = self.db.cursor()
+        for tup in tuples:
+            db_cursor.execute(self.INSERT, tup)
+        self.db.commit()
+
 if __name__ == "__main__":
     # python psync_simple.py source dest
     import sys
@@ -645,7 +685,7 @@ if __name__ == "__main__":
         os.path.join(dest_root, rel_history_path), slog)
     revisions = RevisionStore(
         os.path.join(dest_root, rel_revisions_path))
-    path_filter = PathFilter(globs_to_ignore, names_to_ignore)
+    path_filter = PathFilter(globs_to_ignore)
     
     source_history = scan_and_update_history(
         source_root, path_filter, hash_type, source_history_store, slog)
