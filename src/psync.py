@@ -233,47 +233,46 @@ if __name__ == "__main__":
 
     fs.create_parent_dirs(source_db_path)
     fs.create_parent_dirs(dest_db_path)
-    with sqlite3.connect(source_db_path) as source_db, \
-         sqlite3.connect(dest_db_path) as dest_db:
-        source_history_store = HistoryStore(SqlDb(source_db), slog)
-        dest_history_store = HistoryStore(SqlDb(dest_db), slog)
-        revisions = RevisionStore(fs, revisions_root)
-        merge_log = MergeLog(SqlDb(source_db), clock)
+    with sqlite3.connect(source_db_path) as source_db:
+        with sqlite3.connect(dest_db_path) as dest_db:
+            source_history_store = HistoryStore(SqlDb(source_db), slog)
+            dest_history_store = HistoryStore(SqlDb(dest_db), slog)
+            revisions = RevisionStore(fs, revisions_root)
+            merge_log = MergeLog(SqlDb(source_db), clock)
 
-        source_history = scan_and_update_history(
-            fs, source_root,
-            conf.group_root_marker, conf.path_filter, conf.hash_type,
-            source_history_store, source_peerid, source_groupids,
-            clock, slog)
+            source_history = scan_and_update_history(
+                fs, source_root,
+                conf.group_root_marker, conf.path_filter, conf.hash_type,
+                source_history_store, source_peerid, source_groupids,
+                clock, slog)
 
-        dest_history = scan_and_update_history(
-            fs, dest_root,
-            conf.group_root_marker, conf.path_filter, conf.hash_type,
-            dest_history_store, dest_peerid, dest_groupids,
-            clock, slog)
+            dest_history = scan_and_update_history(
+                fs, dest_root,
+                conf.group_root_marker, conf.path_filter, conf.hash_type,
+                dest_history_store, dest_peerid, dest_groupids,
+                clock, slog)
 
-        filtered_source_history = \
-            (entry for entry in source_history
-             if (dest_groupids.to_root(entry.groupid) is not None and
-                 not conf.path_filter.ignore_path(entry.path)))
+            filtered_source_history = \
+                (entry for entry in source_history
+                 if (dest_groupids.to_root(entry.groupid) is not None and
+                     not conf.path_filter.ignore_path(entry.path)))
 
-        def fetch(entry):
-            # We just pretend we fetched it.  Once diff_and_merge
-            # moves instead of copies, we'll have to copy the file
-            # before we return.
-            source_root = source_groupids.to_root(entry.groupid)
-            source_path = join_paths(source_root, entry.path)
-            return source_path
+            def fetch(entry):
+                # We just pretend we fetched it.  Once diff_and_merge
+                # moves instead of copies, we'll have to copy the file
+                # before we return.
+                source_root = source_groupids.to_root(entry.groupid)
+                source_path = join_paths(source_root, entry.path)
+                return source_path
 
-        # TODO: handle errors,
-        #   especially unknown groupid, created! and changed! errors
-        diff_and_merge(filtered_source_history, dest_history, dest_groupids,
-                       fetch, revisions, fs, dest_history_store, dest_peerid,
-                       clock, merge_log, slog)
+            # TODO: handle errors,
+            #   especially unknown groupid, created! and changed! errors
+            diff_and_merge(filtered_source_history, dest_history, dest_groupids,
+                           fetch, revisions, fs, dest_history_store, dest_peerid,
+                           clock, merge_log, slog)
 
-        # for merge_action in sorted(merge_log.read_actions(dest_peerid)):
-        #   print merge_action
-
+            # for merge_action in sorted(merge_log.read_actions(dest_peerid)):
+            #   print merge_action
 
 
 
