@@ -1,6 +1,10 @@
 Big TODOs
+  memoize all ignore_pattern returns, not just the false ones!
+    and test the speed again
   slow down disk IO to not clobber system when hashing a lot
+  simplify RunTimer/RunTime
 
+  verify bytes after copying?
   logging instead of printing
   if revisions_root = None, just delete?
   revisions with groupids?

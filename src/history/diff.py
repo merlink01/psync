@@ -188,7 +188,7 @@ def latests_by_hash_from_history_by_gpath(history_by_gpath):
     latests_by_hash = {}
     for history in history_by_gpath.itervalues():
         latest = history.latest
-        if not latest.deleted:
+        if latest.hash:
             setdefault(latests_by_hash, latest.hash, set).add(latest)
     return latests_by_hash
 

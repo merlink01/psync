@@ -89,18 +89,6 @@ def diff_and_merge(source_history, dest_history, dest_groupids,
             revisions.copy_out(rev_entry, dest_path)
         merge(action, history_store, peerid, clock, merge_log, slog)
 
-    for action in updates:
-        # TODO: Allow fetch to be asyncronous somehow.
-        source_path = fetch(action.newer)
-        dest_path = verify_stat(fs, dest_groupids,
-                                action.gpath, action.older)
-        trash(fs, dest_path, revisions, action.older, slog)
-        # TODO: Move instead of copying once we have a real fetcher in place.
-        with slog.copying(source_path, dest_path):
-            fs.copy(source_path, dest_path, mtime = action.newer.mtime)
-        merge(action, history_store, peerid, clock, merge_log, slog)
-
-    
     # We're going to simply resolve conflicts by letting the newer
     # mtime win.  Since a deleted mtime is 0, a non-deleted always
     # wins over a deleted.  If the remove end is older, we copy it to
@@ -117,6 +105,16 @@ def diff_and_merge(source_history, dest_history, dest_groupids,
         #     source_path = fetch(action.newer)
         #     revisions.move_in(source_path, action_newer)
 
+    for action in updates:
+        # TODO: Allow fetch to be asyncronous somehow.
+        source_path = fetch(action.newer)
+        dest_path = verify_stat(fs, dest_groupids,
+                                action.gpath, action.older)
+        trash(fs, dest_path, revisions, action.older, slog)
+        # TODO: Move instead of copying once we have a real fetcher in place.
+        with slog.copying(source_path, dest_path):
+            fs.copy(source_path, dest_path, mtime = action.newer.mtime)
+        merge(action, history_store, peerid, clock, merge_log, slog)
 
 def get_dest_path(dest_groupids, gpath):
     (groupid, path) = gpath
